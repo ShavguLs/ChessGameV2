@@ -145,7 +145,13 @@ public class GameController {
         // Store move information for PGN notation
         int srcRow = selectedPieceRow;
         int srcCol = selectedPieceCol;
+
+        // kargad gatestva chirdeba !!!
         boolean wasCapture = logicBoard.getPieceAt(destRow, destCol) != null;
+        if (!wasCapture && selectedPiece instanceof Pawn) {
+            wasCapture = logicBoard.isEnPassantMove(srcRow, srcCol, destRow, destCol, isWhiteTurn);
+        }
+
         boolean wasPawnMove = selectedPiece instanceof Pawn;
         boolean isCastling = selectedPiece instanceof King && Math.abs(destCol - srcCol) == 2;
 
