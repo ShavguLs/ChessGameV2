@@ -56,24 +56,57 @@ public class StartMenu extends JFrame implements ActionListener {
     }
 
     private void startNewGame() {
-        // When the start button is clicked, create and show the game window
-        // We can add dialogs here later to get player names and time controls
+        // --- Create the option dialog ---
+        Object[] options = {"Play Locally", "Play Online"};
+        int choice = JOptionPane.showOptionDialog(this,
+                "How would you like to play?",
+                "Choose Game Mode",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.QUESTION_MESSAGE,
+                null,
+                options,
+                options[0]);
 
-        String whitePlayerName = "White";
-        String blackPlayerName = "Black";
-        int hours = 0, minutes = 10, seconds = 0; // Default 10-minute game
+        if (choice == JOptionPane.YES_OPTION) { // Play Locally
+            // This is your original logic for starting a local game
+            String whitePlayerName = "White";
+            String blackPlayerName = "Black";
+            int hours = 0, minutes = 10, seconds = 0; // Default 10-minute game
 
-        // Create the game window
-        SwingUtilities.invokeLater(() -> new GameWindow(
-                blackPlayerName,
-                whitePlayerName,
-                hours,
-                minutes,
-                seconds
-        ));
+            // Create the LOCAL game window using the original constructor
+            SwingUtilities.invokeLater(() -> new GameWindow(
+                    blackPlayerName,
+                    whitePlayerName,
+                    hours,
+                    minutes,
+                    seconds
+            ));
+            this.dispose(); // Close the start menu
 
-        // Close the start menu window
-        this.dispose();
+        } else if (choice == JOptionPane.NO_OPTION) { // Play Online
+            // --- Get Server Address from User ---
+            String serverAddress = JOptionPane.showInputDialog(
+                    this,
+                    "Enter Server Address:",
+                    "Connect to Server",
+                    JOptionPane.PLAIN_MESSAGE
+            );
+
+            // Default to localhost if the user enters nothing or cancels
+            if (serverAddress == null || serverAddress.trim().isEmpty()) {
+                serverAddress = "localhost";
+            }
+
+            // The default port our server uses.
+            // A more advanced version could also ask the user for the port.
+            final int port = 8888;
+            final String finalServerAddress = serverAddress;
+
+            // Create the ONLINE game window using the new constructor
+            SwingUtilities.invokeLater(() -> new GameWindow(finalServerAddress, port));
+            this.dispose(); // Close the start menu
+        }
+        // If the user closes the dialog, 'choice' will be JOptionPane.CLOSED_OPTION, and we do nothing.
     }
 
     private void validatePGNFile() {

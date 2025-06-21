@@ -1,200 +1,188 @@
 package com.ShavguLs.chess.controller;
 
+import com.ShavguLs.chess.common.MoveObject;
 import com.ShavguLs.chess.logic.*;
 import com.ShavguLs.chess.view.GameWindow;
 
 import javax.swing.*;
 
-public class GameController {
+// Make sure it implements the listener interface
+public class GameController implements ServerUpdateListener {
 
+    // --- Fields for both Local and Online games ---
     private Board logicBoard;
     private boolean isWhiteTurn;
     private Piece selectedPiece;
     private int selectedPieceRow;
     private int selectedPieceCol;
-
     private final GameWindow gameWindow;
+
+    // --- Fields for LOCAL games ONLY ---
     private Clock whiteClock;
     private Clock blackClock;
-
     private Timer timer;
     private final Object timerLock = new Object();
-
-    // PGN functionality
     private MoveTracker moveTracker;
     private PGNManager pgnManager;
     private String whitePlayerName = "White";
     private String blackPlayerName = "Black";
 
+    // --- Fields for ONLINE games ONLY ---
+    private NetworkClient networkClient;
+    private boolean isOnlineGame = false;
+    private boolean isPlayerWhite; // What color am I in an online game?
+
+    // ======================================================================
+    // --- CONSTRUCTOR 1: FOR LOCAL GAMES (Your Original Constructor) ---
+    // ======================================================================
     public GameController(int hh, int mm, int ss, GameWindow gameWindow) {
         this.gameWindow = gameWindow;
+        this.isOnlineGame = false; // This is a local game
         this.moveTracker = new MoveTracker();
         this.pgnManager = new PGNManager(moveTracker);
         this.pgnManager.setTimeControl(hh, mm, ss);
         setUpNewGame();
-        // Only set up and start the clock if a time was actually given
         if (hh > 0 || mm > 0 || ss > 0) {
             setupClock(hh, mm, ss);
             startTimer();
         }
     }
 
-    public void setPlayerNames(String whiteName, String blackName) {
-        this.whitePlayerName = whiteName;
-        this.blackPlayerName = blackName;
-        this.pgnManager.setPlayerNames(whiteName, blackName);
-    }
+    // ======================================================================
+    // --- CONSTRUCTOR 2: FOR ONLINE GAMES (The New Constructor) ---
+    // ======================================================================
+    public GameController(GameWindow gameWindow, String serverAddress, int port) {
+        this.gameWindow = gameWindow;
+        this.isOnlineGame = true; // This is an online game
 
-    public void setUpNewGame() {
-        stopTimer(); // Stop timer from the previous game
+        // We disable local-only components. The server handles them.
+        this.moveTracker = null;
+        this.pgnManager = null;
+        this.timer = null;
+        this.whiteClock = null;
+        this.blackClock = null;
+
+        // The board is needed for display, but it starts empty. Server will populate it.
         this.logicBoard = new Board();
-        this.logicBoard.setupStandardBoard();
-        this.isWhiteTurn = true;
-        this.selectedPiece = null;
 
-        // Reset PGN tracking
-        this.moveTracker.reset();
-        this.pgnManager.reset();
-        this.pgnManager.setPlayerNames(whitePlayerName, blackPlayerName);
-
-        // If clocks exist (meaning it's a timed game), we need to handle them.
-        if (whiteClock != null) {
-            // --- THE FIX IS HERE ---
-            // Instead of resetting, we get the original time from the old clock
-            // and create NEW clock objects with that starting time.
-            int originalSeconds = whiteClock.getInitialSeconds();
-            int hh = originalSeconds / 3600;
-            int mm = (originalSeconds % 3600) / 60;
-            int ss = originalSeconds % 60;
-
-            // Create new clock objects, effectively resetting them
-            setupClock(hh, mm, ss);
-
-            // Update the display to show the reset time
-            gameWindow.updateWhiteClock(whiteClock.getTime());
-            gameWindow.updateBlackClock(blackClock.getTime());
-
-            // Restart the timer for the new game
-            startTimer();
+        this.networkClient = new NetworkClient(serverAddress, port, this);
+        if (!networkClient.connect()) {
+            JOptionPane.showMessageDialog(gameWindow, "Failed to connect to the server.", "Connection Error", JOptionPane.ERROR_MESSAGE);
         }
     }
 
+
+    // --- Core Game Logic Methods (Now with Online/Local split) ---
+
     public boolean selectPiece(int row, int col) {
-        // DEBUG: Add logging to track selection state
-        System.out.println("DEBUG: selectPiece called for (" + row + "," + col + ")");
-        System.out.println("DEBUG: Current turn is white: " + isWhiteTurn);
-        System.out.println("DEBUG: Currently selected piece: " +
-                (selectedPiece != null ? selectedPiece.getClass().getSimpleName() + " at (" +
-                        selectedPieceRow + "," + selectedPieceCol + ")" : "none"));
+        // In online games, you can't move if it's not your turn.
+        if (isOnlineGame && isWhiteTurn != isPlayerWhite) {
+            return false;
+        }
 
         Piece clickedPiece = logicBoard.getPieceAt(row, col);
-        System.out.println("DEBUG: Clicked piece: " +
-                (clickedPiece != null ? clickedPiece.getClass().getSimpleName() +
-                        " (white: " + clickedPiece.isWhite() + ")" : "empty square"));
 
-        // FIXED: If we already have a piece selected, this could be either:
-        // 1. A move attempt (if clicking empty square or opponent piece)
-        // 2. Selecting a different piece of the same color
-        // 3. Clicking the same piece (deselect)
         if (selectedPiece != null) {
-            // If clicking the same square, deselect
             if (row == selectedPieceRow && col == selectedPieceCol) {
-                System.out.println("DEBUG: Deselecting current piece");
                 selectedPiece = null;
                 return false;
             }
-
-            // If clicking a piece of the same color, select that piece instead
             if (clickedPiece != null && clickedPiece.isWhite() == isWhiteTurn) {
-                System.out.println("DEBUG: Selecting different piece of same color");
                 selectedPiece = clickedPiece;
                 selectedPieceRow = row;
                 selectedPieceCol = col;
                 return true;
             }
-
-            // Otherwise, this is a move attempt
-            System.out.println("DEBUG: Attempting move from (" + selectedPieceRow + "," +
-                    selectedPieceCol + ") to (" + row + "," + col + ")");
             return makeMove(row, col);
         }
 
-        // No piece currently selected - try to select the clicked piece
         if (clickedPiece != null && clickedPiece.isWhite() == isWhiteTurn) {
-            System.out.println("DEBUG: Selecting new piece");
             this.selectedPiece = clickedPiece;
             this.selectedPieceRow = row;
             this.selectedPieceCol = col;
             return true;
         }
-
-        System.out.println("DEBUG: Cannot select - wrong turn or empty square");
         return false;
     }
 
-    // Also fix the makeMove method to ensure proper cleanup
     public boolean makeMove(int destRow, int destCol) {
         if (selectedPiece == null) {
-            System.out.println("DEBUG: makeMove called but no piece selected");
             return false;
         }
 
-        System.out.println("DEBUG: makeMove from (" + selectedPieceRow + "," + selectedPieceCol +
-                ") to (" + destRow + "," + destCol + ")");
+        if (isOnlineGame) {
+            // --- ONLINE MOVE LOGIC ---
+            networkClient.sendMove(new MoveObject(selectedPieceRow, selectedPieceCol, destRow, destCol));
+            this.selectedPiece = null;
+            // We wait for the server to send the new board state. We don't update locally.
+            return true;
+        } else {
+            // --- LOCAL MOVE LOGIC (Your original code) ---
+            int srcRow = selectedPieceRow;
+            int srcCol = selectedPieceCol;
+            boolean wasCapture = logicBoard.getPieceAt(destRow, destCol) != null;
+            if (!wasCapture && selectedPiece instanceof Pawn) {
+                wasCapture = logicBoard.isEnPassantMove(srcRow, srcCol, destRow, destCol, isWhiteTurn);
+            }
+            boolean wasPawnMove = selectedPiece instanceof Pawn;
+            boolean isCastling = selectedPiece instanceof King && Math.abs(destCol - srcCol) == 2;
+            boolean moveWasSuccessful = logicBoard.attemptMove(selectedPieceRow, selectedPieceCol, destRow, destCol, isWhiteTurn);
 
-        // Store move information for PGN notation
-        int srcRow = selectedPieceRow;
-        int srcCol = selectedPieceCol;
-
-        // kargad gatestva chirdeba !!!
-        boolean wasCapture = logicBoard.getPieceAt(destRow, destCol) != null;
-        if (!wasCapture && selectedPiece instanceof Pawn) {
-            wasCapture = logicBoard.isEnPassantMove(srcRow, srcCol, destRow, destCol, isWhiteTurn);
-        }
-
-        boolean wasPawnMove = selectedPiece instanceof Pawn;
-        boolean isCastling = selectedPiece instanceof King && Math.abs(destCol - srcCol) == 2;
-
-        boolean moveWasSuccessful = logicBoard.attemptMove(
-                selectedPieceRow, selectedPieceCol, destRow, destCol, isWhiteTurn);
-
-        if (moveWasSuccessful) {
-            System.out.println("DEBUG: Move successful, switching turns");
-
-            // Handle promotion
-            Piece promotedPiece = null;
-            Piece movedPiece = logicBoard.getPieceAt(destRow, destCol);
-            if (movedPiece instanceof Pawn) {
-                if ((movedPiece.isWhite() && destRow == 0) || (!movedPiece.isWhite() && destRow == 7)) {
-                    // Promotion occurred, get the promoted piece
+            if (moveWasSuccessful) {
+                Piece movedPiece = logicBoard.getPieceAt(destRow, destCol);
+                Piece promotedPiece = null;
+                if (movedPiece instanceof Pawn && (destRow == 0 || destRow == 7)) {
                     promotedPiece = logicBoard.getPieceAt(destRow, destCol);
                 }
+                String moveNotation = generateMoveNotation(selectedPiece, srcRow, srcCol,
+                        destRow, destCol, wasCapture, isCastling, promotedPiece);
+                moveTracker.addMove(moveNotation);
+                moveTracker.updateMoveCounter(wasCapture, wasPawnMove);
+                // Call the method from its new home in Board.java
+                String position = logicBoard.generatePositionString();
+                moveTracker.addPosition(position);
+
+                isWhiteTurn = !isWhiteTurn; // This should be handled by attemptMove now. Let's keep it for safety in local mode.
+                checkGameEndingConditions();
             }
-
-            // Generate PGN notation for the move
-            String moveNotation = generateMoveNotation(selectedPiece, srcRow, srcCol,
-                    destRow, destCol, wasCapture,
-                    isCastling, promotedPiece);
-
-            // Add move to tracker
-            moveTracker.addMove(moveNotation);
-            moveTracker.updateMoveCounter(wasCapture, wasPawnMove);
-
-            // Add position to tracker for repetition detection
-            String position = generatePositionString();
-            moveTracker.addPosition(position);
-
-            isWhiteTurn = !isWhiteTurn; // Switch turns
-            checkGameEndingConditions();
-        } else {
-            System.out.println("DEBUG: Move failed");
+            this.selectedPiece = null;
+            gameWindow.getChessBoardPanel().repaint();
+            return moveWasSuccessful;
         }
+    }
 
-        // CRITICAL FIX: Always clear the selected piece after a move attempt
-        System.out.println("DEBUG: Clearing selected piece");
+
+    // --- Local Game Helper Methods ---
+
+    public void setPlayerNames(String whiteName, String blackName) {
+        if (!isOnlineGame) {
+            this.whitePlayerName = whiteName;
+            this.blackPlayerName = blackName;
+            this.pgnManager.setPlayerNames(whiteName, blackName);
+        }
+    }
+
+    public void setUpNewGame() {
+        stopTimer();
+        this.logicBoard = new Board();
+        this.logicBoard.setupStandardBoard();
+        this.isWhiteTurn = true;
         this.selectedPiece = null;
-        gameWindow.getChessBoardPanel().repaint();
-        return moveWasSuccessful;
+        if (moveTracker != null) {
+            this.moveTracker.reset();
+            this.pgnManager.reset();
+            this.pgnManager.setPlayerNames(whitePlayerName, blackPlayerName);
+        }
+        if (whiteClock != null) {
+            int originalSeconds = whiteClock.getInitialSeconds();
+            int hh = originalSeconds / 3600;
+            int mm = (originalSeconds % 3600) / 60;
+            int ss = originalSeconds % 60;
+            setupClock(hh, mm, ss);
+            gameWindow.updateWhiteClock(whiteClock.getTime());
+            gameWindow.updateBlackClock(blackClock.getTime());
+            startTimer();
+        }
     }
 
     private String generateMoveNotation(Piece piece, int srcRow, int srcCol,
@@ -207,32 +195,25 @@ public class GameController {
                 causesCheckmate, isCastling, promotedPiece);
     }
 
-    private String generatePositionString() {
-        StringBuilder sb = new StringBuilder();
-        Piece[][] board = logicBoard.getBoardArray();
-
-        for (int row = 0; row < 8; row++) {
-            for (int col = 0; col < 8; col++) {
-                Piece piece = board[row][col];
-                if (piece == null) {
-                    sb.append('.');
-                } else {
-                    char c = piece.getFenChar();
-                    sb.append(c);
-                }
+    private void checkGameEndingConditions() {
+        if (logicBoard.isGameOver()) {
+            stopTimer();
+            if (logicBoard.isKingInCheck(isWhiteTurn)) {
+                pgnManager.setResult(isWhiteTurn ? "0-1" : "1-0");
+                gameWindow.checkmateOccurred(isWhiteTurn);
+            } else {
+                pgnManager.setResult("1/2-1/2");
+                gameWindow.stalemateOccurred();
             }
+        } else if (moveTracker.hasFiftyMoveRule() || moveTracker.hasThreefoldRepetition()) {
+            stopTimer();
+            pgnManager.setResult("1/2-1/2");
+            gameWindow.stalemateOccurred(); // Or a custom draw message
         }
-
-        // Add turn indicator
-        sb.append(isWhiteTurn ? 'W' : 'B');
-
-        return sb.toString();
     }
 
-    public Board getLogicBoard() { return logicBoard; }
-    public Clock getWhiteClock() { return this.whiteClock; }
-    public Clock getBlackClock() { return this.blackClock; }
-    public PGNManager getPGNManager() { return this.pgnManager; }
+
+    // --- Clock Methods (for local games) ---
 
     private void setupClock(int hh, int mm, int ss) {
         whiteClock = new Clock(hh, mm, ss);
@@ -249,21 +230,15 @@ public class GameController {
     }
 
     public void startTimer() {
-        stopTimer(); // Always stop the old timer before starting a new one
-
+        stopTimer();
         synchronized (timerLock) {
-            // Create a new timer that will execute the code inside every 1000ms (1 sec)
             timer = new Timer(1000, e -> {
-                // This block of code is the "action" that happens every second
                 synchronized (timerLock) {
                     if (timer == null) return;
-
                     if (isWhiteTurn) {
                         whiteClock.decr();
-                        // Tell the UI to update its display
                         SwingUtilities.invokeLater(() -> gameWindow.updateWhiteClock(whiteClock.getTime()));
                         if (whiteClock.outOfTime()) {
-                            // Set PGN result
                             pgnManager.setResult("0-1");
                             SwingUtilities.invokeLater(() -> gameWindow.timeOut(true));
                         }
@@ -271,7 +246,6 @@ public class GameController {
                         blackClock.decr();
                         SwingUtilities.invokeLater(() -> gameWindow.updateBlackClock(blackClock.getTime()));
                         if (blackClock.outOfTime()) {
-                            // Set PGN result
                             pgnManager.setResult("1-0");
                             SwingUtilities.invokeLater(() -> gameWindow.timeOut(false));
                         }
@@ -282,51 +256,63 @@ public class GameController {
         }
     }
 
-    private void checkGameEndingConditions() {
-        // Check the status of the player WHOSE TURN IT IS NOW.
-        boolean canMove = logicBoard.hasLegalMoves(isWhiteTurn);
 
-        // If the current player has no legal moves...
-        if (!canMove) {
-            // ...we then check if their king is in check.
-            if (logicBoard.isKingInCheck(isWhiteTurn)) {
-                // No legal moves AND in check? That's CHECKMATE.
-                // The player who just moved is the winner.
-                System.out.println("GAME OVER: CHECKMATE! " + (isWhiteTurn ? "Black" : "White") + " wins.");
-                stopTimer(); // Stop the clocks!
+    // --- Getters ---
+    public Board getLogicBoard() { return logicBoard; }
+    public Clock getWhiteClock() { return this.whiteClock; }
+    public Clock getBlackClock() { return this.blackClock; }
+    public PGNManager getPGNManager() { return this.pgnManager; }
 
-                // Set PGN result
-                if (isWhiteTurn) {
-                    pgnManager.setResult("0-1"); // Black wins
-                } else {
-                    pgnManager.setResult("1-0"); // White wins
-                }
 
-                // Tell the GameWindow to show the checkmate message
-                gameWindow.checkmateOccurred(isWhiteTurn);
-            } else {
-                // No legal moves and NOT in check? That's STALEMATE.
-                System.out.println("GAME OVER: STALEMATE!");
-                stopTimer(); // Stop the clocks!
+    // =================================================================
+    // --- IMPLEMENTATION OF ServerUpdateListener INTERFACE METHODS  ---
+    // =================================================================
 
-                // Set PGN result
-                pgnManager.setResult("1/2-1/2");
-
-                // Tell the GameWindow to show the stalemate message
-                gameWindow.stalemateOccurred();
-            }
-        }
-
-        // Check for other draw conditions
-        else if (moveTracker.hasFiftyMoveRule()) {
+    @Override
+    public void onGameStart(String color, String opponentName) {
+        this.isPlayerWhite = color.equalsIgnoreCase("WHITE");
+        gameWindow.setTitle("Online Chess - You are " + color + " vs. " + opponentName);
+        if (this.isOnlineGame) {
             stopTimer();
-            pgnManager.setResult("1/2-1/2");
-            // Could add a method to GameWindow to show fifty-move rule draw
         }
-        else if (moveTracker.hasThreefoldRepetition()) {
-            stopTimer();
-            pgnManager.setResult("1/2-1/2");
-            // Could add a method to GameWindow to show threefold repetition draw
+    }
+
+    @Override
+    public void onGameStateUpdate(String fen) {
+        logicBoard.loadFen(fen);
+        this.isWhiteTurn = logicBoard.isWhiteTurn();
+        gameWindow.getChessBoardPanel().repaint();
+    }
+
+    @Override
+    public void onGameOver(String resultMessage) {
+        stopTimer();
+        JOptionPane.showMessageDialog(gameWindow, resultMessage, "Game Over", JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    @Override
+    public void onInvalidMove(String reason) {
+        JOptionPane.showMessageDialog(gameWindow, "Invalid Move: " + reason, "Move Rejected", JOptionPane.WARNING_MESSAGE);
+    }
+
+    @Override
+    public void onNetworkError(String errorMessage) {
+        stopTimer();
+        JOptionPane.showMessageDialog(gameWindow, "Network Error: " + errorMessage, "Error", JOptionPane.ERROR_MESSAGE);
+    }
+
+    @Override
+    public void onClockUpdate(String whiteTime, String blackTime) {
+        if (isOnlineGame) {
+            gameWindow.updateWhiteClock(whiteTime);
+            gameWindow.updateBlackClock(blackTime);
+        }
+    }
+
+    @Override
+    public void onReceivePgn(String pgn) {
+        if (isOnlineGame) {
+            gameWindow.showOnlineGameSaveDialog(pgn);
         }
     }
 }

@@ -33,6 +33,8 @@ public class Board {
     }
 
     public boolean attemptMove(int srcRow, int srcCol, int destRow, int destCol, boolean isWhiteTurn) {
+        // A standard move is just an attempt with no specific promotion piece.
+        // The more detailed method will handle asking the user if needed.
         return attemptMove(srcRow, srcCol, destRow, destCol, isWhiteTurn, null);
     }
 
@@ -114,6 +116,9 @@ public class Board {
 
         // 9. Update move tracking
         updateLastMove(srcRow, srcCol, destRow, destCol);
+
+
+        this.isWhiteTurn = !this.isWhiteTurn;
 
         return true;
     }
@@ -219,6 +224,7 @@ public class Board {
         getPieceAt(srcRow, srcCol + step).markMove();
 
         updateLastMove(srcRow, srcCol, destRow, destCol);
+        this.isWhiteTurn = !this.isWhiteTurn;
         return true;
     }
 
@@ -321,6 +327,7 @@ public class Board {
 
         updateLastMove(srcRow, srcCol, destRow, destCol);
         getPieceAt(destRow, destCol).markMove();
+        this.isWhiteTurn = !this.isWhiteTurn;
         return true;
     }
 
@@ -343,7 +350,7 @@ public class Board {
 
 // You already have a great attemptMove, we just need to make sure it flips the turn.
 // Find your attemptMove method and add this one line at the end, right before 'return true;':
-// isWhiteTurn = !isWhiteTurn;
+// this.isWhiteTurn = !this.isWhiteTurn;
 
     public boolean isGameOver() {
         // The game is over if the current player has no legal moves.
@@ -400,5 +407,72 @@ public class Board {
         // A full FEN would also include castling rights, en passant target, etc.
         // fen.append(" KQkq - 0 1");
         return fen.toString();
+    }
+
+
+    public String generatePositionString() {
+        StringBuilder sb = new StringBuilder();
+        Piece[][] boardArray = this.getBoardArray(); // Use the board's own array
+
+        for (int row = 0; row < 8; row++) {
+            for (int col = 0; col < 8; col++) {
+                Piece piece = boardArray[row][col];
+                if (piece == null) {
+                    sb.append('.');
+                } else {
+                    char c = piece.getFenChar();
+                    sb.append(c);
+                }
+            }
+        }
+
+        // Add turn indicator
+        sb.append(this.isWhiteTurn ? 'W' : 'B'); // Use the board's own turn state
+
+        return sb.toString();
+    }
+
+
+
+    // Add this new method to Board.java
+    public void loadFen(String fen) {
+        this.clearBoard();
+        String[] parts = fen.split(" ");
+        String boardState = parts[0];
+
+        int row = 0;
+        int col = 0;
+
+        for (char c : boardState.toCharArray()) {
+            if (c == '/') {
+                row++;
+                col = 0;
+            } else if (Character.isDigit(c)) {
+                col += Character.getNumericValue(c);
+            } else {
+                boolean isWhite = Character.isUpperCase(c);
+                Piece piece = null;
+                char lowerC = Character.toLowerCase(c);
+
+                if (lowerC == 'k') piece = new King(isWhite);
+                else if (lowerC == 'q') piece = new Queen(isWhite);
+                else if (lowerC == 'r') piece = new Rook(isWhite);
+                else if (lowerC == 'b') piece = new Bishop(isWhite);
+                else if (lowerC == 'n') piece = new Knight(isWhite);
+                else if (lowerC == 'p') piece = new Pawn(isWhite);
+
+                if (piece != null) {
+                    this.setPiece(row, col, piece);
+                    col++;
+                }
+            }
+        }
+
+        if (parts.length > 1) {
+            this.isWhiteTurn = parts[1].equals("w");
+        }
+
+        // A full FEN parser would also handle castling rights, en passant, etc.
+        // This is sufficient for our needs right now.
     }
 }

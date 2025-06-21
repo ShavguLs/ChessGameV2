@@ -13,15 +13,24 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 
 public class GameSaveDialog extends JDialog {
-    private PGNManager pgnManager;
+    // --- FIELDS ---
+    private PGNManager pgnManager; // Used for local games
+    private String rawPgnText;     // Used for online games
+
     private JTextField eventNameField;
     private JTextField locationField;
     private JTextField roundField;
     private JTextArea gamePreview;
 
+    // --- CONSTRUCTORS ---
+
+    /**
+     * Constructor for LOCAL games, which uses a live PGNManager.
+     */
     public GameSaveDialog(JFrame parentWindow, PGNManager manager, String whiteName, String blackName) {
         super(parentWindow, "Save Game", true);
         this.pgnManager = manager;
+        this.rawPgnText = null;
 
         setupComponents();
         arrangeComponents();
@@ -29,6 +38,26 @@ public class GameSaveDialog extends JDialog {
         setLocationRelativeTo(parentWindow);
     }
 
+    /**
+     * NEW: Constructor for ONLINE games, which receives a finalized PGN string.
+     */
+    public GameSaveDialog(JFrame parentWindow, String pgnText) {
+        super(parentWindow, "Save Game", true);
+        this.rawPgnText = pgnText;
+        this.pgnManager = null; // We don't have a live manager in this mode
+
+        setupComponentsForPgnText();
+        arrangeComponents();
+        pack();
+        setLocationRelativeTo(parentWindow);
+    }
+
+
+    // --- UI SETUP ---
+
+    /**
+     * Setup method for LOCAL games.
+     */
     private void setupComponents() {
         eventNameField = new JTextField("Chess Game", 20);
         locationField = new JTextField("Home", 20);
@@ -38,7 +67,26 @@ public class GameSaveDialog extends JDialog {
         gamePreview.setEditable(false);
         gamePreview.setFont(new Font("Courier", Font.PLAIN, 12));
 
-        updateGamePreview();
+        updateGamePreview(); // Update preview on initial load
+    }
+
+    /**
+     * NEW: Setup method for ONLINE games.
+     */
+    private void setupComponentsForPgnText() {
+        // We can't edit event/location/round, so we create disabled fields.
+        eventNameField = new JTextField("Online Game", 20);
+        eventNameField.setEnabled(false);
+        locationField = new JTextField("Server", 20);
+        locationField.setEnabled(false);
+        roundField = new JTextField("N/A", 5);
+        roundField.setEnabled(false);
+
+        gamePreview = new JTextArea(15, 50);
+        gamePreview.setEditable(false);
+        gamePreview.setFont(new Font("Courier", Font.PLAIN, 12));
+        gamePreview.setText(this.rawPgnText); // Directly set the text
+        gamePreview.setCaretPosition(0);
     }
 
     private void arrangeComponents() {
@@ -80,10 +128,13 @@ public class GameSaveDialog extends JDialog {
         constraints.fill = GridBagConstraints.HORIZONTAL;
         inputPanel.add(roundField, constraints);
 
-        InputUpdateListener updateListener = new InputUpdateListener();
-        eventNameField.getDocument().addDocumentListener(updateListener);
-        locationField.getDocument().addDocumentListener(updateListener);
-        roundField.getDocument().addDocumentListener(updateListener);
+        // Only add the update listener if we are in local mode
+        if (pgnManager != null) {
+            InputUpdateListener updateListener = new InputUpdateListener();
+            eventNameField.getDocument().addDocumentListener(updateListener);
+            locationField.getDocument().addDocumentListener(updateListener);
+            roundField.getDocument().addDocumentListener(updateListener);
+        }
 
         return inputPanel;
     }
@@ -116,111 +167,20 @@ public class GameSaveDialog extends JDialog {
     }
 
     private void updateGamePreview() {
-        SwingUtilities.invokeLater(new Runnable() {
-            public void run() {
-                pgnManager.setGameInfo(eventNameField.getText(),
-                        locationField.getText(),
-                        roundField.getText());
-                String gameText = pgnManager.getPGNText();
-                gamePreview.setText(gameText);
-                gamePreview.setCaretPosition(0);
-            }
-        });
-    }
+        // This method is only relevant for local games with a PGNManager
+        if (pgnManager == null) return;
 
-    private class InputUpdateListener implements javax.swing.event.DocumentListener {
-        public void changedUpdate(javax.swing.event.DocumentEvent e) {
-            updateGamePreview();
-        }
-        public void removeUpdate(javax.swing.event.DocumentEvent e) {
-            updateGamePreview();
-        }
-        public void insertUpdate(javax.swing.event.DocumentEvent e) {
-            updateGamePreview();
-        }
-    }
-
-    private class ValidateListener implements ActionListener {
-        public void actionPerformed(ActionEvent e) {
-            // Update the game info first
+        SwingUtilities.invokeLater(() -> {
             pgnManager.setGameInfo(eventNameField.getText(),
                     locationField.getText(),
                     roundField.getText());
-
-            // Get the current PGN text
-            String pgnText = pgnManager.getPGNText();
-
-            // Show a progress dialog since validation might take a moment
-            JDialog progressDialog = new JDialog(GameSaveDialog.this, "Validating...", true);
-            JLabel progressLabel = new JLabel("Validating game moves...", SwingConstants.CENTER);
-            progressLabel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
-            progressDialog.add(progressLabel);
-            progressDialog.setSize(250, 100);
-            progressDialog.setLocationRelativeTo(GameSaveDialog.this);
-
-            // Run validation in background thread
-            SwingWorker<GameValidator.ValidationResult, Void> worker = new SwingWorker<GameValidator.ValidationResult, Void>() {
-                @Override
-                protected GameValidator.ValidationResult doInBackground() throws Exception {
-                    return GameValidator.validateGame(pgnText);
-                }
-
-                @Override
-                protected void done() {
-                    progressDialog.dispose();
-                    try {
-                        GameValidator.ValidationResult result = get();
-                        showValidationResult(result);
-                    } catch (Exception ex) {
-                        JOptionPane.showMessageDialog(GameSaveDialog.this,
-                                "Error during validation: " + ex.getMessage(),
-                                "Validation Error",
-                                JOptionPane.ERROR_MESSAGE);
-                    }
-                }
-            };
-
-            worker.execute();
-            progressDialog.setVisible(true);
-        }
-
-        private void showValidationResult(GameValidator.ValidationResult result) {
-            if (result.isValid()) {
-                // Show success message with game analysis
-                String analysis = GameValidator.getBoardAnalysis(pgnManager.getPGNText());
-                String message = result.getErrorMessage() + "\n\n" + analysis;
-
-                JOptionPane.showMessageDialog(GameSaveDialog.this,
-                        message,
-                        "Validation Successful",
-                        JOptionPane.INFORMATION_MESSAGE);
-            } else {
-                // Show error message
-                JOptionPane.showMessageDialog(GameSaveDialog.this,
-                        result.getErrorMessage(),
-                        "Validation Failed",
-                        JOptionPane.ERROR_MESSAGE);
-            }
-        }
+            String gameText = pgnManager.getPGNText();
+            gamePreview.setText(gameText);
+            gamePreview.setCaretPosition(0);
+        });
     }
 
-    private class SaveFileListener implements ActionListener {
-        public void actionPerformed(ActionEvent e) {
-            saveGameToFile();
-        }
-    }
-
-    private class CopyTextListener implements ActionListener {
-        public void actionPerformed(ActionEvent e) {
-            copyGameText();
-        }
-    }
-
-    private class CancelListener implements ActionListener {
-        public void actionPerformed(ActionEvent e) {
-            dispose();
-        }
-    }
+    // --- ACTION LISTENERS AND HELPERS ---
 
     private void saveGameToFile() {
         JFileChooser fileChooser = new JFileChooser();
@@ -233,16 +193,27 @@ public class GameSaveDialog extends JDialog {
         if (fileChooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
             File selectedFile = fileChooser.getSelectedFile();
             String fileName = selectedFile.getAbsolutePath();
-
             if (!fileName.toLowerCase().endsWith(".pgn")) {
                 fileName += ".pgn";
             }
 
-            pgnManager.setGameInfo(eventNameField.getText(),
-                    locationField.getText(),
-                    roundField.getText());
+            boolean saveSuccess;
+            if (rawPgnText != null) {
+                // Online mode: We just write the raw text to a file.
+                try (java.io.BufferedWriter writer = new java.io.BufferedWriter(new java.io.FileWriter(fileName))) {
+                    writer.write(rawPgnText);
+                    saveSuccess = true;
+                } catch (java.io.IOException ex) {
+                    ex.printStackTrace();
+                    saveSuccess = false;
+                }
+            } else {
+                // Local mode: Use the existing PGNManager.
+                pgnManager.setGameInfo(eventNameField.getText(), locationField.getText(), roundField.getText());
+                saveSuccess = pgnManager.saveToFile(fileName);
+            }
 
-            if (pgnManager.saveToFile(fileName)) {
+            if (saveSuccess) {
                 JOptionPane.showMessageDialog(this,
                         "Game saved successfully!\nFile: " + fileName,
                         "Save Successful",
@@ -258,10 +229,7 @@ public class GameSaveDialog extends JDialog {
     }
 
     private void copyGameText() {
-        pgnManager.setGameInfo(eventNameField.getText(),
-                locationField.getText(),
-                roundField.getText());
-        String gameText = pgnManager.getPGNText();
+        String gameText = (rawPgnText != null) ? rawPgnText : pgnManager.getPGNText();
         java.awt.datatransfer.StringSelection selection =
                 new java.awt.datatransfer.StringSelection(gameText);
         java.awt.datatransfer.Clipboard clipboard =
@@ -271,5 +239,61 @@ public class GameSaveDialog extends JDialog {
                 "Game text copied to clipboard!",
                 "Copy Successful",
                 JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    private class InputUpdateListener implements javax.swing.event.DocumentListener {
+        public void changedUpdate(javax.swing.event.DocumentEvent e) { updateGamePreview(); }
+        public void removeUpdate(javax.swing.event.DocumentEvent e) { updateGamePreview(); }
+        public void insertUpdate(javax.swing.event.DocumentEvent e) { updateGamePreview(); }
+    }
+
+    private class ValidateListener implements ActionListener {
+        public void actionPerformed(ActionEvent e) {
+            final String pgnTextToValidate = (rawPgnText != null) ? rawPgnText : pgnManager.getPGNText();
+
+            JDialog progressDialog = new JDialog(GameSaveDialog.this, "Validating...", true);
+            progressDialog.add(new JLabel("Validating game moves...", SwingConstants.CENTER));
+            progressDialog.setSize(250, 100);
+            progressDialog.setLocationRelativeTo(GameSaveDialog.this);
+
+            SwingWorker<GameValidator.ValidationResult, Void> worker = new SwingWorker<>() {
+                @Override
+                protected GameValidator.ValidationResult doInBackground() {
+                    return GameValidator.validateGame(pgnTextToValidate);
+                }
+
+                @Override
+                protected void done() {
+                    progressDialog.dispose();
+                    try {
+                        GameValidator.ValidationResult result = get();
+                        String analysis = GameValidator.getBoardAnalysis(pgnTextToValidate);
+                        String message = result.getErrorMessage() + "\n\n" + analysis;
+
+                        if (result.isValid()) {
+                            JOptionPane.showMessageDialog(GameSaveDialog.this, message, "Validation Successful", JOptionPane.INFORMATION_MESSAGE);
+                        } else {
+                            JOptionPane.showMessageDialog(GameSaveDialog.this, result.getErrorMessage(), "Validation Failed", JOptionPane.ERROR_MESSAGE);
+                        }
+                    } catch (Exception ex) {
+                        JOptionPane.showMessageDialog(GameSaveDialog.this, "Error during validation: " + ex.getMessage(), "Validation Error", JOptionPane.ERROR_MESSAGE);
+                    }
+                }
+            };
+            worker.execute();
+            progressDialog.setVisible(true);
+        }
+    }
+
+    private class SaveFileListener implements ActionListener {
+        public void actionPerformed(ActionEvent e) { saveGameToFile(); }
+    }
+
+    private class CopyTextListener implements ActionListener {
+        public void actionPerformed(ActionEvent e) { copyGameText(); }
+    }
+
+    private class CancelListener implements ActionListener {
+        public void actionPerformed(ActionEvent e) { dispose(); }
     }
 }
