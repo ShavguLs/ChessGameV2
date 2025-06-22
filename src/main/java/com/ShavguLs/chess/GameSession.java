@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -35,7 +36,7 @@ public class GameSession implements Runnable {
 
     public GameSession(Socket player1, Socket player2) {
         // --- Initialize Time ---
-        int hh = 0, mm = 5, ss = 0; // Hardcoded 5 minutes for now
+        int hh = 0, mm = 10, ss = 0; // Hardcoded 10 minutes for now
         this.whiteClock = new Clock(hh, mm, ss);
         this.blackClock = new Clock(hh, mm, ss);
 
@@ -60,6 +61,8 @@ public class GameSession implements Runnable {
         try {
             setupStreams();
             System.out.println("[SERVER LOG] Game Session started. Streams are set up.");
+            whitePlayerSocket.setSoTimeout(1000);
+            blackPlayerSocket.setSoTimeout(1000);
 
             whiteOut.writeObject("WELCOME:WHITE:Player 2 (Black)");
             blackOut.writeObject("WELCOME:BLACK:Player 1 (White)");
@@ -67,28 +70,32 @@ public class GameSession implements Runnable {
 
             startClockTimer();
 
-            while (!logicBoard.isGameOver() && !checkDrawConditions()) {
-                broadcastGameState();
+            while (!logicBoard.isGameOver() && !checkDrawConditions() && !isTimeUp()) {
+                broadcastGameState(); // Send state at the start of each turn's thinking time
 
                 boolean isWhiteMoving = logicBoard.isWhiteTurn();
-                System.out.println("\n[SERVER LOG] ----- NEW TURN -----");
-                System.out.println("[SERVER LOG] It is " + (isWhiteMoving ? "WHITE's" : "BLACK's") + " turn to move.");
-
                 ObjectInputStream currentTurnInput = isWhiteMoving ? whiteIn : blackIn;
-                Socket currentSocket = isWhiteMoving ? whitePlayerSocket : blackPlayerSocket;
 
-                System.out.println("[SERVER LOG] Waiting for move from: " + currentSocket.getInetAddress());
+                try {
+                    // This will now wait for up to 1 second.
+                    MoveObject move = (MoveObject) currentTurnInput.readObject();
 
-                // This is a blocking call, it waits for the client to send a move
-                MoveObject move = (MoveObject) currentTurnInput.readObject();
-                System.out.println("[SERVER LOG] Received MoveObject: " + move);
+                    // If we get here, a move was actually received.
+                    isClockRunning.set(false); // Pause clock while processing
+                    processMove(move, isWhiteMoving);
+                    if (!logicBoard.isGameOver() && !checkDrawConditions() && !isTimeUp()) {
+                        isClockRunning.set(true); // Resume clock for next turn
+                    }
 
-                isClockRunning.set(false);
-
-                processMove(move, isWhiteMoving);
-
-                if (!logicBoard.isGameOver() && !checkDrawConditions()) {
-                    isClockRunning.set(true);
+                } catch (SocketTimeoutException e) {
+                    // THIS IS EXPECTED! It means no move was sent in the last second.
+                    // We do nothing here but let the loop continue.
+                    // The while condition at the top will re-check if time has run out.
+                    // System.out.println("[SERVER HEARTBEAT] No move received, checking game state."); // Optional debug log
+                } catch (ClassNotFoundException | IOException e) {
+                    // This is a real error (like a disconnect)
+                    System.err.println("[SERVER ERROR] Player disconnected or sent invalid data: " + e.getMessage());
+                    break; // Break the loop on a real error
                 }
             }
 
@@ -270,5 +277,10 @@ public class GameSession implements Runnable {
         try { if(whitePlayerSocket != null) whitePlayerSocket.close(); } catch (IOException e) { /* ignore */ }
         try { if(blackPlayerSocket != null) blackPlayerSocket.close(); } catch (IOException e) { /* ignore */ }
         System.out.println("GameSession ended and connections closed.");
+    }
+
+
+    private boolean isTimeUp() {
+        return whiteClock.outOfTime() || blackClock.outOfTime();
     }
 }
