@@ -1,6 +1,6 @@
 package com.ShavguLs.chess;
 
-import com.ShavguLs.chess.view.StartMenu;
+import com.ShavguLs.chess.client.view.StartMenu;
 import javax.swing.*;
 
 public class Main {
