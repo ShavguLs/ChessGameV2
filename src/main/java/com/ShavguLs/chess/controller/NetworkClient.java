@@ -111,7 +111,7 @@ public class NetworkClient implements Runnable {
             } else if (text.startsWith("INVALID_MOVE:")) {
                 listener.onInvalidMove(text.substring(13));
             } else if (text.startsWith("CLOCK_UPDATE:")) { // NEW
-                String[] parts = text.substring(13).split(":", 2);
+                String[] parts = text.substring(13).split(";");
                 if (parts.length == 2) {
                     listener.onClockUpdate(parts[0], parts[1]);
                 }

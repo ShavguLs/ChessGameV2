@@ -85,13 +85,15 @@ public class StartMenu extends JFrame implements ActionListener {
 
         } else if (choice == JOptionPane.NO_OPTION) { // Play Online
             // --- Get Server Address from User ---
-            String serverAddress = JOptionPane.showInputDialog(
-                    this,
-                    "Enter Server Address:",
-                    "Connect to Server",
-                    JOptionPane.PLAIN_MESSAGE
+            String serverAddress = (String) JOptionPane.showInputDialog(
+                    this,                       // parent component
+                    "Enter Server Address:",    // message
+                    "Connect to Server",        // title
+                    JOptionPane.QUESTION_MESSAGE, // message type
+                    null,                       // icon (null for default)
+                    null,                       // selection values (not used for text input)
+                    "localhost"                 // initial selection value
             );
-
             // Default to localhost if the user enters nothing or cancels
             if (serverAddress == null || serverAddress.trim().isEmpty()) {
                 serverAddress = "localhost";

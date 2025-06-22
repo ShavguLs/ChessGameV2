@@ -98,6 +98,9 @@ public class GameSession implements Runnable {
             String result = getFinalGameResult();
             pgnManager.setResult(extractResultCode(result));
 
+            System.out.println("[SERVER DEBUG] Moves recorded in MoveTracker: " + moveTracker.getAllMoves().size());
+            System.out.println("[SERVER DEBUG] Last move was: " + moveTracker.getLastMove());
+
             broadcastGameState(); // Send final board state
             broadcastMessage("GAMEOVER:" + result);
             System.out.println("[SERVER LOG] Sent GAMEOVER message: " + result);
@@ -116,7 +119,10 @@ public class GameSession implements Runnable {
     }
 
     private void processMove(MoveObject move, boolean isWhiteMoving) throws IOException {
-        System.out.println("[SERVER LOG] Processing move: " + move);
+        System.out.println("\n[SERVER PROCESS_MOVE] -----------------------------");
+        System.out.println("[SERVER PROCESS_MOVE] Received move from " + (isWhiteMoving ? "White" : "Black") + ": " + move);
+        System.out.println("[SERVER PROCESS_MOVE] Board's current turn is: " + (logicBoard.isWhiteTurn() ? "White" : "Black"));
+
         int srcRow = move.startRow();
         int srcCol = move.startCol();
         int destRow = move.endRow();
@@ -124,10 +130,17 @@ public class GameSession implements Runnable {
 
         Piece pieceToMove = logicBoard.getPieceAt(srcRow, srcCol);
         if (pieceToMove == null) {
-            System.out.println("[SERVER LOG] Move failed: No piece at source square.");
+            System.out.println("[SERVER PROCESS_MOVE] FAILED: No piece at source square (" + srcRow + "," + srcCol + ").");
             sendInvalidMoveMessage(isWhiteMoving, "No piece at source square.");
             return;
         }
+        System.out.println("[SERVER PROCESS_MOVE] Piece to move: " + pieceToMove.getClass().getSimpleName());
+
+        // Gather pre-move info for PGN
+        boolean wasCapture = logicBoard.getPieceAt(destRow, destCol) != null ||
+                (pieceToMove instanceof Pawn && logicBoard.isEnPassantMove(srcRow, srcCol, destRow, destCol, isWhiteMoving));
+        boolean wasPawnMove = pieceToMove instanceof Pawn;
+        boolean isCastling = pieceToMove instanceof King && Math.abs(destCol - srcCol) == 2;
 
         Piece promotionChoice = null;
         char promoChar = move.promotionPiece();
@@ -137,23 +150,42 @@ public class GameSession implements Runnable {
             else if (promoChar == 'r' || promoChar == 'R') promotionChoice = new Rook(isWhite);
             else if (promoChar == 'b' || promoChar == 'B') promotionChoice = new Bishop(isWhite);
             else if (promoChar == 'n' || promoChar == 'N') promotionChoice = new Knight(isWhite);
-            System.out.println("[SERVER LOG] Promotion piece selected: " + promoChar);
+            System.out.println("[SERVER PROCESS_MOVE] Promotion choice detected: " + promotionChoice.getClass().getSimpleName());
         }
 
-        // The single, definitive call that modifies the board
+        // This is the SINGLE, definitive call.
+        System.out.println("[SERVER PROCESS_MOVE] Calling logicBoard.attemptMove...");
         boolean moveWasSuccessful = logicBoard.attemptMove(srcRow, srcCol, destRow, destCol, isWhiteMoving, promotionChoice);
+        System.out.println("[SERVER PROCESS_MOVE] ...attemptMove returned: " + moveWasSuccessful);
 
-        System.out.println("[SERVER LOG] Board.attemptMove returned: " + moveWasSuccessful);
 
         if (moveWasSuccessful) {
-            System.out.println("[SERVER LOG] Move was successful. Board state is now:");
-            System.out.println(logicBoard.generateFen());
-            // The rest of the logic for PGN...
-            
+            System.out.println("[SERVER PROCESS_MOVE] SUCCESS: Move was legal. Recording to PGN.");
+            // --- Post-move PGN logic ---
+            Piece movedPiece = logicBoard.getPieceAt(destRow, destCol);
+            Piece promotedPieceForPgn = null;
+            if (wasPawnMove && (destRow == 0 || destRow == 7)) {
+                promotedPieceForPgn = movedPiece;
+            }
+
+            boolean opponentIsWhite = logicBoard.isWhiteTurn();
+            boolean causesCheck = logicBoard.isKingInCheck(opponentIsWhite);
+            boolean causesCheckmate = causesCheck && !logicBoard.hasLegalMoves(opponentIsWhite);
+
+            String moveNotation = MoveConverter.convertMoveToNotation(pieceToMove, srcRow, srcCol, destRow, destCol,
+                    logicBoard, wasCapture, causesCheck,
+                    causesCheckmate, isCastling, promotedPieceForPgn);
+            System.out.println("[SERVER PROCESS_MOVE] Generated PGN notation: " + moveNotation);
+
+            moveTracker.addMove(moveNotation);
+            moveTracker.updateMoveCounter(wasCapture, wasPawnMove);
+            moveTracker.addPosition(logicBoard.generatePositionString());
+
         } else {
-            System.out.println("[SERVER LOG] Move was illegal. Sending invalid move message.");
+            System.out.println("[SERVER PROCESS_MOVE] FAILED: Move was illegal according to Board.attemptMove.");
             sendInvalidMoveMessage(isWhiteMoving, "The move is illegal.");
         }
+        System.out.println("[SERVER PROCESS_MOVE] -----------------------------\n");
     }
 
     private String getFinalGameResult() {
@@ -203,7 +235,7 @@ public class GameSession implements Runnable {
                 Clock currentClock = logicBoard.isWhiteTurn() ? whiteClock : blackClock;
                 boolean wasOutOfTime = currentClock.outOfTime();
                 currentClock.decr();
-                broadcastMessage(String.format("CLOCK_UPDATE:%s:%s", whiteClock.getTime(), blackClock.getTime()));
+                broadcastMessage(String.format("CLOCK_UPDATE:%s;%s", whiteClock.getTime(), blackClock.getTime()));
 
                 if (currentClock.outOfTime() && !wasOutOfTime) {
                     // This is a simplified check. We'll properly end the game on the main thread.
