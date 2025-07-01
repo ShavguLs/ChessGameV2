@@ -30,6 +30,10 @@ public class PGNManager {
         return recorder.createPGNText();
     }
 
+    public String getWhitePlayerName() { return recorder.getWhitePlayerName(); }
+    public String getBlackPlayerName() { return recorder.getBlackPlayerName(); }
+    public String getResult() { return recorder.getResult(); }
+
     public boolean saveToFile(String filename) {
         recorder.setAllMoves(moveTracker.getAllMoves());
         return recorder.saveToFile(filename);

@@ -16,6 +16,7 @@ public class StartMenu extends JFrame implements ActionListener {
 
     private static final String START_GAME_COMMAND = "START_GAME";
     private static final String VALIDATE_PGN_COMMAND = "VALIDATE_PGN";
+    private static final String IMPORT_PGN_COMMAND = "IMPORT_PGN";
 
     public StartMenu() {
         super("Chess Game - Main Menu");
@@ -24,7 +25,7 @@ public class StartMenu extends JFrame implements ActionListener {
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setSize(350, 250);
         setLocationRelativeTo(null); // Center the window
-        setLayout(new GridLayout(3, 1, 10, 10)); // Changed to 3 rows for the new button
+        setLayout(new GridLayout(4, 1, 10, 10)); // Changed to 4 rows for the new button
 
         // Welcome Label
         JLabel welcomeLabel = new JLabel("Welcome to Chess!", SwingConstants.CENTER);
@@ -42,6 +43,12 @@ public class StartMenu extends JFrame implements ActionListener {
         validateButton.setActionCommand(VALIDATE_PGN_COMMAND);
         validateButton.addActionListener(this);
         add(validateButton);
+
+        // Import PGN Button
+        JButton importButton = new JButton("Import PGN to Database");
+        importButton.setActionCommand(IMPORT_PGN_COMMAND);
+        importButton.addActionListener(this);
+        add(importButton);
     }
 
     @Override
@@ -52,6 +59,8 @@ public class StartMenu extends JFrame implements ActionListener {
             startNewGame();
         } else if (VALIDATE_PGN_COMMAND.equals(command)) {
             validatePGNFile();
+        } else if (IMPORT_PGN_COMMAND.equals(command)) {
+            importPgnFile();
         }
     }
 
@@ -208,6 +217,59 @@ public class StartMenu extends JFrame implements ActionListener {
         progressDialog.setVisible(true);
     }
 
+    private void importPgnFile() {
+        JFileChooser fileChooser = new JFileChooser();
+        fileChooser.setDialogTitle("Select PGN File to Import");
+        fileChooser.setFileFilter(new FileNameExtensionFilter("PGN Files (*.pgn)", "pgn"));
+
+        int result = fileChooser.showOpenDialog(this);
+
+        if (result == JFileChooser.APPROVE_OPTION) {
+            File selectedFile = fileChooser.getSelectedFile();
+            try {
+                // Read the entire file content into a single string
+                String pgnText = new String(java.nio.file.Files.readAllBytes(selectedFile.toPath()));
+
+                // We need to escape newlines to send it as a single line command.
+                // Let's use a simple replacement for now. We'll handle this on the server.
+                String formattedPgn = pgnText.replace("\n", "||NEWLINE||");
+
+                // Prepare the command
+                String command = "IMPORT_PGN:" + formattedPgn;
+
+                // Send the command to the server using our new utility client
+                // We'll use SwingWorker to prevent the UI from freezing during the network call
+                final JDialog progressDialog = createProgressDialog("Importing to Database...");
+
+                SwingWorker<String, Void> worker = new SwingWorker<>() {
+                    @Override
+                    protected String doInBackground() throws Exception {
+                        // The server address and port should be configurable, but we'll hardcode for now
+                        return com.ShavguLs.chess.controller.ServerUtilityClient.sendCommand("localhost", 8888, command);
+                    }
+
+                    @Override
+                    protected void done() {
+                        progressDialog.dispose();
+                        try {
+                            String serverResponse = get();
+                            JOptionPane.showMessageDialog(StartMenu.this, serverResponse, "Import Result", JOptionPane.INFORMATION_MESSAGE);
+                        } catch (Exception e) {
+                            JOptionPane.showMessageDialog(StartMenu.this, "Failed to import: " + e.getMessage(), "Import Error", JOptionPane.ERROR_MESSAGE);
+                        }
+                    }
+                };
+
+                worker.execute();
+                progressDialog.setVisible(true);
+
+            } catch (java.io.IOException e) {
+                JOptionPane.showMessageDialog(this, "Error reading file: " + e.getMessage(), "File Error", JOptionPane.ERROR_MESSAGE);
+            }
+        }
+    }
+
+
     private JDialog createProgressDialog() {
         JDialog progressDialog = new JDialog(this, "Validating PGN File...", true);
         JLabel progressLabel = new JLabel("Please wait while validating the PGN file...", SwingConstants.CENTER);
@@ -229,6 +291,22 @@ public class StartMenu extends JFrame implements ActionListener {
         return progressDialog;
     }
 
+    private JDialog createProgressDialog(String title) {
+        JDialog progressDialog = new JDialog(this, title, true);
+        JLabel progressLabel = new JLabel("Communicating with server, please wait...", SwingConstants.CENTER);
+        progressLabel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+        JProgressBar progressBar = new JProgressBar();
+        progressBar.setIndeterminate(true);
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.add(progressLabel, BorderLayout.CENTER);
+        panel.add(progressBar, BorderLayout.SOUTH);
+        progressDialog.add(panel);
+        progressDialog.setSize(300, 120);
+        progressDialog.setLocationRelativeTo(this);
+        progressDialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+        return progressDialog;
+    }
+
     private void showScrollableResult(String title, String message, int messageType) {
         JTextArea textArea = new JTextArea(message);
         textArea.setEditable(false);
@@ -246,4 +324,6 @@ public class StartMenu extends JFrame implements ActionListener {
 
         JOptionPane.showMessageDialog(this, scrollPane, title + " - " + iconType, messageType);
     }
+
+
 }

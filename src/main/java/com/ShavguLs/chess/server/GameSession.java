@@ -115,6 +115,7 @@ public class GameSession implements Runnable {
             String finalPGN = pgnManager.getPGNText();
             broadcastMessage("FINAL_PGN:" + finalPGN);
             System.out.println("[SERVER LOG] Sent final PGN.");
+            DatabaseManager.saveGame(this.pgnManager);
 
         } catch (Exception e) {
             System.err.println("[SERVER ERROR] Unhandled exception in GameSession run loop: " + e.getMessage());

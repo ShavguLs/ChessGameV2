@@ -18,6 +18,7 @@ public class ChessServer {
 
     public static void main(String[] args) {
         System.out.println("Chess Server is starting...");
+        DatabaseManager.initializeDatabase();
 
         try (ServerSocket serverSocket = new ServerSocket(PORT)) {
             System.out.println("Server is listening on port " + PORT);

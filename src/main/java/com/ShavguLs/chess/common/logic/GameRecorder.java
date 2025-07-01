@@ -31,6 +31,10 @@ public class GameRecorder {
         this.player2Name = blackName;
     }
 
+    public String getWhitePlayerName() { return this.player1Name; }
+    public String getBlackPlayerName() { return this.player2Name; }
+    public String getResult() { return this.finalResult; }
+
     public void setGameInformation(String event, String site, String round) {
         if (event != null && !event.equals("")) {
             this.gameName = event;
