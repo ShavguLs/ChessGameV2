@@ -56,61 +56,96 @@ public class GameSession implements Runnable {
         this.blackPlayerSocket = player2;
     }
 
+
     @Override
     public void run() {
+        String gameStatus = "IN_PROGRESS"; // NEW: Variable to track game state
+        boolean whiteDisconnected = false;
+        boolean blackDisconnected = false;
+
         try {
             setupStreams();
             System.out.println("[SERVER LOG] Game Session started. Streams are set up.");
-            whitePlayerSocket.setSoTimeout(1000);
-            blackPlayerSocket.setSoTimeout(1000);
+            // We will set the timeout inside the loop to be more flexible
 
             whiteOut.writeObject("WELCOME:WHITE:Player 2 (Black)");
-            blackOut.writeObject("WELCOME:BLACK:Player 1 (White)");
-            System.out.println("[SERVER LOG] Welcome messages sent. White player is assigned.");
+            blackOut.writeObject("WELCOME:BLACK:White");
+            System.out.println("[SERVER LOG] Welcome messages sent.");
 
             startClockTimer();
 
-            while (!logicBoard.isGameOver() && !checkDrawConditions() && !isTimeUp()) {
-                broadcastGameState(); // Send state at the start of each turn's thinking time
+            while (gameStatus.equals("IN_PROGRESS")) {
+                // Check for game-ending conditions at the start of each loop
+                if (logicBoard.isGameOver()) {
+                    gameStatus = "NORMAL_CONCLUSION";
+                    continue; // Exit the loop
+                }
+                if (checkDrawConditions()) {
+                    gameStatus = "DRAW";
+                    continue; // Exit the loop
+                }
+                if (isTimeUp()) {
+                    gameStatus = "TIMEOUT";
+                    continue; // Exit the loop
+                }
+
+                broadcastGameState();
 
                 boolean isWhiteMoving = logicBoard.isWhiteTurn();
                 ObjectInputStream currentTurnInput = isWhiteMoving ? whiteIn : blackIn;
+                Socket currentPlayerSocket = isWhiteMoving ? whitePlayerSocket : blackPlayerSocket;
 
                 try {
-                    // This will now wait for up to 1 second.
+                    currentPlayerSocket.setSoTimeout(1000); // 1-second timeout for a move
                     MoveObject move = (MoveObject) currentTurnInput.readObject();
 
-                    // If we get here, a move was actually received.
-                    isClockRunning.set(false); // Pause clock while processing
+                    isClockRunning.set(false);
                     processMove(move, isWhiteMoving);
-                    if (!logicBoard.isGameOver() && !checkDrawConditions() && !isTimeUp()) {
-                        isClockRunning.set(true); // Resume clock for next turn
-                    }
+                    isClockRunning.set(true);
 
                 } catch (SocketTimeoutException e) {
-                    // THIS IS EXPECTED! It means no move was sent in the last second.
-                    // We do nothing here but let the loop continue.
-                    // The while condition at the top will re-check if time has run out.
-                    // System.out.println("[SERVER HEARTBEAT] No move received, checking game state."); // Optional debug log
+                    // Expected, do nothing, let the loop re-check game state
                 } catch (ClassNotFoundException | IOException e) {
-                    // This is a real error (like a disconnect)
+                    // A real error, likely a disconnect
                     System.err.println("[SERVER ERROR] Player disconnected or sent invalid data: " + e.getMessage());
-                    break; // Break the loop on a real error
+                    gameStatus = "DISCONNECT";
+                    if (isWhiteMoving) whiteDisconnected = true; else blackDisconnected = true;
                 }
             }
 
-            // --- Game Over Sequence ---
-            System.out.println("[SERVER LOG] Game over condition met.");
+            // --- NEW, SMARTER Game Over Sequence ---
+            System.out.println("[SERVER LOG] Game over. Reason: " + gameStatus);
             stopClockTimer();
-            String result = getFinalGameResult();
-            pgnManager.setResult(extractResultCode(result));
 
-            System.out.println("[SERVER DEBUG] Moves recorded in MoveTracker: " + moveTracker.getAllMoves().size());
-            System.out.println("[SERVER DEBUG] Last move was: " + moveTracker.getLastMove());
+            String finalResult;
+            String finalPgnResult;
 
-            broadcastGameState(); // Send final board state
-            broadcastMessage("GAMEOVER:" + result);
-            System.out.println("[SERVER LOG] Sent GAMEOVER message: " + result);
+            if (gameStatus.equals("DISCONNECT")) {
+                if (whiteDisconnected) {
+                    finalResult = "0-1 (White disconnected)";
+                    finalPgnResult = "0-1";
+                } else {
+                    finalResult = "1-0 (Black disconnected)";
+                    finalPgnResult = "1-0";
+                }
+            } else if (gameStatus.equals("TIMEOUT")) {
+                if (whiteClock.outOfTime()) {
+                    finalResult = "0-1 (Black wins on time)";
+                    finalPgnResult = "0-1";
+                } else {
+                    finalResult = "1-0 (White wins on time)";
+                    finalPgnResult = "1-0";
+                }
+            } else { // Normal conclusion or draw
+                finalResult = getFinalGameResult(); // This will now correctly report checkmate/stalemate/draw
+                finalPgnResult = extractResultCode(finalResult);
+            }
+
+            pgnManager.setResult(finalPgnResult);
+
+            broadcastGameState();
+            broadcastMessage("GAMEOVER:" + finalResult);
+            System.out.println("[SERVER LOG] Sent GAMEOVER message: " + finalResult);
 
             String finalPGN = pgnManager.getPGNText();
             broadcastMessage("FINAL_PGN:" + finalPGN);
@@ -118,9 +153,9 @@ public class GameSession implements Runnable {
             DatabaseManager.saveGame(this.pgnManager);
 
         } catch (Exception e) {
-            System.err.println("[SERVER ERROR] Unhandled exception in GameSession run loop: " + e.getMessage());
+            System.err.println("[SERVER ERROR] Unhandled exception in GameSession: " + e.getMessage());
             e.printStackTrace();
-            broadcastMessage("ERROR:A player has disconnected. The game cannot continue.");
+            broadcastMessage("ERROR:A server error occurred. The game cannot continue.");
         } finally {
             closeConnections();
         }

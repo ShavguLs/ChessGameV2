@@ -120,4 +120,57 @@ public class DatabaseManager {
             return false;
         }
     }
+
+    /**
+     * Imports a game from a full PGN text string into the database.
+     * @param pgnText The full PGN content.
+     * @return A success or failure message string to be sent back to the client.
+     */
+    public static String importPgn(String pgnText) {
+        String whitePlayer = "Unknown";
+        String blackPlayer = "Unknown";
+        String result = "*";
+
+        // A simple but effective parser to extract the required PGN headers
+        try {
+            String[] lines = pgnText.split("\n");
+            for (String line : lines) {
+                if (line.trim().startsWith("[White ")) {
+                    whitePlayer = line.substring(line.indexOf("\"") + 1, line.lastIndexOf("\""));
+                } else if (line.trim().startsWith("[Black ")) {
+                    blackPlayer = line.substring(line.indexOf("\"") + 1, line.lastIndexOf("\""));
+                } else if (line.trim().startsWith("[Result ")) {
+                    result = line.substring(line.indexOf("\"") + 1, line.lastIndexOf("\""));
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("Could not parse PGN headers: " + e.getMessage());
+            // We can still try to save it with default values
+        }
+
+
+        String sql = "INSERT INTO games(white_player, black_player, result, game_date, pgn_text) VALUES(?,?,?,?,?)";
+
+        try (Connection conn = connect();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+
+            if (conn == null) {
+                return "ERROR: Database connection failed.";
+            }
+
+            pstmt.setString(1, whitePlayer);
+            pstmt.setString(2, blackPlayer);
+            pstmt.setString(3, result);
+            pstmt.setTimestamp(4, new Timestamp(System.currentTimeMillis())); // Use current time for import date
+            pstmt.setString(5, pgnText);
+            pstmt.executeUpdate();
+
+            System.out.println("Successfully imported PGN for " + whitePlayer + " vs. " + blackPlayer);
+            return "SUCCESS: Game imported to database.";
+
+        } catch (SQLException e) {
+            e.printStackTrace();
+            return "ERROR: An SQL error occurred during import. " + e.getMessage();
+        }
+    }
 }

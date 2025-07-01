@@ -1,4 +1,4 @@
-package com.ShavguLs.chess.controller;
+package com.ShavguLs.chess.client.controller;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;

@@ -1,5 +1,7 @@
 package com.ShavguLs.chess.client.view;
 
+import com.ShavguLs.chess.client.controller.UtilityClient;
+import com.ShavguLs.chess.common.HandshakeObject;
 import com.ShavguLs.chess.common.logic.GameValidator;
 import com.ShavguLs.chess.common.logic.PGNFileReader;
 
@@ -222,30 +224,24 @@ public class StartMenu extends JFrame implements ActionListener {
         fileChooser.setDialogTitle("Select PGN File to Import");
         fileChooser.setFileFilter(new FileNameExtensionFilter("PGN Files (*.pgn)", "pgn"));
 
-        int result = fileChooser.showOpenDialog(this);
-
-        if (result == JFileChooser.APPROVE_OPTION) {
+        if (fileChooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
             File selectedFile = fileChooser.getSelectedFile();
             try {
-                // Read the entire file content into a single string
+                // Read the entire file content into a single string.
+                // This correctly preserves all line breaks.
                 String pgnText = new String(java.nio.file.Files.readAllBytes(selectedFile.toPath()));
 
-                // We need to escape newlines to send it as a single line command.
-                // Let's use a simple replacement for now. We'll handle this on the server.
-                String formattedPgn = pgnText.replace("\n", "||NEWLINE||");
+                // Create the structured command object.
+                HandshakeObject command = new HandshakeObject("IMPORT_PGN", pgnText);
 
-                // Prepare the command
-                String command = "IMPORT_PGN:" + formattedPgn;
-
-                // Send the command to the server using our new utility client
-                // We'll use SwingWorker to prevent the UI from freezing during the network call
+                // Use a SwingWorker to send the command without freezing the UI.
                 final JDialog progressDialog = createProgressDialog("Importing to Database...");
 
                 SwingWorker<String, Void> worker = new SwingWorker<>() {
                     @Override
-                    protected String doInBackground() throws Exception {
-                        // The server address and port should be configurable, but we'll hardcode for now
-                        return com.ShavguLs.chess.controller.ServerUtilityClient.sendCommand("localhost", 8888, command);
+                    protected String doInBackground() {
+                        // The call is now cleaner and sends the full object.
+                        return UtilityClient.sendCommand("localhost", 8888, command);
                     }
 
                     @Override

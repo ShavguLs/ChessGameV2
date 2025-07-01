@@ -6,6 +6,7 @@ import javax.swing.*;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
+import java.io.PrintWriter;
 import java.net.Socket;
 import java.net.UnknownHostException;
 
@@ -30,15 +31,29 @@ public class NetworkClient implements Runnable {
     public boolean connect() {
         try {
             socket = new Socket(serverAddress, serverPort);
+
+            // --- NEW HANDSHAKE ---
+            // First, send a plain text line to identify this connection as a game player.
+            // This tells the server to add us to the matchmaking pool.
+            PrintWriter writer = new PrintWriter(socket.getOutputStream(), true);
+            writer.println("PLAY_CHESS");
+            // We do NOT close this writer, as it would close the underlying socket.
+            // --- END HANDSHAKE ---
+
+            // Now, set up the object stream for sending game objects like MoveObject.
             out = new ObjectOutputStream(socket.getOutputStream());
-            // The input stream is handled in the run() method's thread.
+            // It's crucial to flush the object stream header to prevent a deadlock
+            // where the server is waiting for our object stream but we're waiting for it.
+            out.flush();
+
             new Thread(this).start(); // Start the listener thread
             return true;
         } catch (UnknownHostException e) {
-            listener.onNetworkError("Connection failed: Unknown host '" + serverAddress + "'");
+            // Use SwingUtilities to ensure UI updates happen on the correct thread.
+            SwingUtilities.invokeLater(() -> listener.onNetworkError("Connection failed: Unknown host '" + serverAddress + "'"));
             return false;
         } catch (IOException e) {
-            listener.onNetworkError("Connection failed: Could not connect to server at '" + serverAddress + ":" + serverPort + "'");
+            SwingUtilities.invokeLater(() -> listener.onNetworkError("Connection failed: Could not connect to server at '" + serverAddress + ":" + serverPort + "'"));
             return false;
         }
     }
