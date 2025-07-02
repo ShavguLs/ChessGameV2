@@ -3,7 +3,9 @@ package com.ShavguLs.chess.server;
 import com.ShavguLs.chess.common.logic.*;
 import com.ShavguLs.chess.common.MoveObject;
 
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.Socket;
@@ -23,6 +25,10 @@ public class GameSession implements Runnable {
     private ObjectOutputStream blackOut;
     private ObjectInputStream blackIn;
     private final Board logicBoard;
+
+    // Player nicknames
+    private String whitePlayerNickname = "White Player";
+    private String blackPlayerNickname = "Black Player";
 
     // Clock Management
     private final Clock whiteClock;
@@ -47,29 +53,33 @@ public class GameSession implements Runnable {
         // --- Initialize PGN System ---
         this.moveTracker = new MoveTracker();
         this.pgnManager = new PGNManager(this.moveTracker);
-        this.pgnManager.setPlayerNames("Player 1 (White)", "Player 2 (Black)"); // Can be improved with login system
+        // Player names will be set after we receive them from clients
         this.pgnManager.setTimeControl(hh, mm, ss);
-        // We can set other PGN headers like Event, Site, etc. here if desired.
 
         // --- Assign Players ---
         this.whitePlayerSocket = player1;
         this.blackPlayerSocket = player2;
     }
 
-
     @Override
     public void run() {
-        String gameStatus = "IN_PROGRESS"; // NEW: Variable to track game state
+        String gameStatus = "IN_PROGRESS";
         boolean whiteDisconnected = false;
         boolean blackDisconnected = false;
 
         try {
             setupStreams();
             System.out.println("[SERVER LOG] Game Session started. Streams are set up.");
-            // We will set the timeout inside the loop to be more flexible
 
-            whiteOut.writeObject("WELCOME:WHITE:Player 2 (Black)");
-            blackOut.writeObject("WELCOME:BLACK:White");
+            // Get player nicknames first
+            getPlayerNicknames();
+
+            // Set nicknames in PGN manager
+            pgnManager.setPlayerNames(whitePlayerNickname, blackPlayerNickname);
+
+            // Send welcome messages with opponent nicknames
+            whiteOut.writeObject("WELCOME:WHITE:" + blackPlayerNickname);
+            blackOut.writeObject("WELCOME:BLACK:" + whitePlayerNickname);
             System.out.println("[SERVER LOG] Welcome messages sent.");
 
             startClockTimer();
@@ -78,15 +88,15 @@ public class GameSession implements Runnable {
                 // Check for game-ending conditions at the start of each loop
                 if (logicBoard.isGameOver()) {
                     gameStatus = "NORMAL_CONCLUSION";
-                    continue; // Exit the loop
+                    continue;
                 }
                 if (checkDrawConditions()) {
                     gameStatus = "DRAW";
-                    continue; // Exit the loop
+                    continue;
                 }
                 if (isTimeUp()) {
                     gameStatus = "TIMEOUT";
-                    continue; // Exit the loop
+                    continue;
                 }
 
                 broadcastGameState();
@@ -113,7 +123,7 @@ public class GameSession implements Runnable {
                 }
             }
 
-            // --- NEW, SMARTER Game Over Sequence ---
+            // Game Over Sequence
             System.out.println("[SERVER LOG] Game over. Reason: " + gameStatus);
             stopClockTimer();
 
@@ -122,22 +132,22 @@ public class GameSession implements Runnable {
 
             if (gameStatus.equals("DISCONNECT")) {
                 if (whiteDisconnected) {
-                    finalResult = "0-1 (White disconnected)";
+                    finalResult = "0-1 (" + whitePlayerNickname + " disconnected)";
                     finalPgnResult = "0-1";
                 } else {
-                    finalResult = "1-0 (Black disconnected)";
+                    finalResult = "1-0 (" + blackPlayerNickname + " disconnected)";
                     finalPgnResult = "1-0";
                 }
             } else if (gameStatus.equals("TIMEOUT")) {
                 if (whiteClock.outOfTime()) {
-                    finalResult = "0-1 (Black wins on time)";
+                    finalResult = "0-1 (" + blackPlayerNickname + " wins on time)";
                     finalPgnResult = "0-1";
                 } else {
-                    finalResult = "1-0 (White wins on time)";
+                    finalResult = "1-0 (" + whitePlayerNickname + " wins on time)";
                     finalPgnResult = "1-0";
                 }
-            } else { // Normal conclusion or draw
-                finalResult = getFinalGameResult(); // This will now correctly report checkmate/stalemate/draw
+            } else {
+                finalResult = getFinalGameResult();
                 finalPgnResult = extractResultCode(finalResult);
             }
 
@@ -161,9 +171,38 @@ public class GameSession implements Runnable {
         }
     }
 
+    private void getPlayerNicknames() throws IOException {
+        try {
+            // Request nicknames from both players
+            whiteOut.writeObject("REQUEST_NICKNAME");
+            blackOut.writeObject("REQUEST_NICKNAME");
+
+            // Set timeout for nickname reception
+            whitePlayerSocket.setSoTimeout(5000);
+            blackPlayerSocket.setSoTimeout(5000);
+
+            // Receive nicknames
+            String whiteNick = (String) whiteIn.readObject();
+            String blackNick = (String) blackIn.readObject();
+
+            if (whiteNick != null && !whiteNick.isEmpty()) {
+                whitePlayerNickname = whiteNick;
+            }
+            if (blackNick != null && !blackNick.isEmpty()) {
+                blackPlayerNickname = blackNick;
+            }
+
+            System.out.println("[SERVER LOG] Players: " + whitePlayerNickname + " (White) vs " + blackPlayerNickname + " (Black)");
+
+        } catch (Exception e) {
+            System.err.println("[SERVER ERROR] Could not get player nicknames: " + e.getMessage());
+            // continue with default names
+        }
+    }
+
     private void processMove(MoveObject move, boolean isWhiteMoving) throws IOException {
         System.out.println("\n[SERVER PROCESS_MOVE] -----------------------------");
-        System.out.println("[SERVER PROCESS_MOVE] Received move from " + (isWhiteMoving ? "White" : "Black") + ": " + move);
+        System.out.println("[SERVER PROCESS_MOVE] Received move from " + (isWhiteMoving ? whitePlayerNickname : blackPlayerNickname) + ": " + move);
         System.out.println("[SERVER PROCESS_MOVE] Board's current turn is: " + (logicBoard.isWhiteTurn() ? "White" : "Black"));
 
         int srcRow = move.startRow();
@@ -196,15 +235,13 @@ public class GameSession implements Runnable {
             System.out.println("[SERVER PROCESS_MOVE] Promotion choice detected: " + promotionChoice.getClass().getSimpleName());
         }
 
-        // This is the SINGLE, definitive call.
         System.out.println("[SERVER PROCESS_MOVE] Calling logicBoard.attemptMove...");
         boolean moveWasSuccessful = logicBoard.attemptMove(srcRow, srcCol, destRow, destCol, isWhiteMoving, promotionChoice);
         System.out.println("[SERVER PROCESS_MOVE] ...attemptMove returned: " + moveWasSuccessful);
 
-
         if (moveWasSuccessful) {
             System.out.println("[SERVER PROCESS_MOVE] SUCCESS: Move was legal. Recording to PGN.");
-            // --- Post-move PGN logic ---
+            // Post-move PGN logic
             Piece movedPiece = logicBoard.getPieceAt(destRow, destCol);
             Piece promotedPieceForPgn = null;
             if (wasPawnMove && (destRow == 0 || destRow == 7)) {
@@ -234,12 +271,17 @@ public class GameSession implements Runnable {
     private String getFinalGameResult() {
         if (moveTracker.hasFiftyMoveRule()) return "1/2-1/2 (Draw by 50-move rule)";
         if (moveTracker.hasThreefoldRepetition()) return "1/2-1/2 (Draw by threefold repetition)";
-        // Check for timeout
-        if (whiteClock.outOfTime()) return "0-1 (Black wins on time)";
-        if (blackClock.outOfTime()) return "1-0 (White wins on time)";
+        if (whiteClock.outOfTime()) return "0-1 (" + blackPlayerNickname + " wins on time)";
+        if (blackClock.outOfTime()) return "1-0 (" + whitePlayerNickname + " wins on time)";
 
-        // Otherwise, get result from board state (checkmate/stalemate)
-        return logicBoard.getGameResult();
+        // Get result from board state (checkmate/stalemate)
+        String result = logicBoard.getGameResult();
+        if (result.equals("1-0 (White wins)")) {
+            return "1-0 (" + whitePlayerNickname + " wins by checkmate)";
+        } else if (result.equals("0-1 (Black wins)")) {
+            return "0-1 (" + blackPlayerNickname + " wins by checkmate)";
+        }
+        return result;
     }
 
     private boolean checkDrawConditions() {
@@ -262,13 +304,21 @@ public class GameSession implements Runnable {
     }
 
     private void setupStreams() throws IOException {
-        whiteOut = new ObjectOutputStream(whitePlayerSocket.getOutputStream());
-        whiteIn = new ObjectInputStream(whitePlayerSocket.getInputStream());
-        blackOut = new ObjectOutputStream(blackPlayerSocket.getOutputStream());
-        blackIn = new ObjectInputStream(blackPlayerSocket.getInputStream());
-        // Flush streams to send headers, preventing constructor block
-        whiteOut.flush();
-        blackOut.flush();
+        try {
+            whiteOut = new ObjectOutputStream(whitePlayerSocket.getOutputStream());
+            whiteOut.flush();
+            blackOut = new ObjectOutputStream(blackPlayerSocket.getOutputStream());
+            blackOut.flush();
+
+            // Small delay to ensure both sides are ready
+            Thread.sleep(100);
+
+            whiteIn = new ObjectInputStream(whitePlayerSocket.getInputStream());
+            blackIn = new ObjectInputStream(blackPlayerSocket.getInputStream());
+            System.out.println("[SERVER LOG] Streams successfully established for both players.");
+        } catch (InterruptedException e) {
+            throw new IOException("Stream setup interrupted", e);
+        }
     }
 
     private void startClockTimer() {
@@ -281,9 +331,8 @@ public class GameSession implements Runnable {
                 broadcastMessage(String.format("CLOCK_UPDATE:%s;%s", whiteClock.getTime(), blackClock.getTime()));
 
                 if (currentClock.outOfTime() && !wasOutOfTime) {
-                    // This is a simplified check. We'll properly end the game on the main thread.
                     System.out.println("A player has run out of time.");
-                    isClockRunning.set(false); // Stop the clock
+                    isClockRunning.set(false);
                 }
             }
         }, 1, 1, TimeUnit.SECONDS);
@@ -314,7 +363,6 @@ public class GameSession implements Runnable {
         try { if(blackPlayerSocket != null) blackPlayerSocket.close(); } catch (IOException e) { /* ignore */ }
         System.out.println("GameSession ended and connections closed.");
     }
-
 
     private boolean isTimeUp() {
         return whiteClock.outOfTime() || blackClock.outOfTime();

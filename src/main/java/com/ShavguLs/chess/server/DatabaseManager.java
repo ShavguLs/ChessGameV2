@@ -2,20 +2,15 @@ package com.ShavguLs.chess.server; // Or your primary package
 
 import com.ShavguLs.chess.common.logic.PGNManager;
 
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.PreparedStatement;
-import java.sql.SQLException;
-import java.sql.Statement;
-import java.sql.Timestamp;
+import java.sql.*;
 
 public class DatabaseManager {
 
     // --- Final, agreed-upon credentials ---
     private static final String DB_HOST = "localhost";
     private static final String DB_NAME = "chess_db";
-    private static final String DB_USER = "chess_app_user";
-    private static final String DB_PASS = "ChessV2";
+    private static final String DB_USER = "root";
+    private static final String DB_PASS = ""; //ChessV2
     // ------------------------------------
 
     // The JDBC connection URL for MariaDB
@@ -56,6 +51,14 @@ public class DatabaseManager {
                 // + ", FOREIGN KEY (black_user_id) REFERENCES users(id)"
                 + ");";
 
+        // SQL for creating the users table
+        String createUsersTableSql = "CREATE TABLE IF NOT EXISTS users ("
+                + " id INT AUTO_INCREMENT PRIMARY KEY,"
+                + " nickname VARCHAR(255) UNIQUE NOT NULL,"
+                + " password VARCHAR(255) NOT NULL,"
+                + " registration_date DATETIME NOT NULL"
+                + ");";
+
         // Using try-with-resources to ensure connection is closed
         try (Connection conn = connect();
              Statement stmt = conn.createStatement()) {
@@ -68,9 +71,93 @@ public class DatabaseManager {
             stmt.execute(createGamesTableSql);
             System.out.println("Database initialized. 'games' table is ready.");
 
+            stmt.execute(createUsersTableSql);
+            System.out.println("Database initialized. 'users' table is ready.");
         } catch (SQLException e) {
             System.err.println("Error initializing database table: " + e.getMessage());
         }
+    }
+
+    /**
+     * Registers new user in the database.
+     * @param nickname - The users nickname
+     * @param password - The users password
+     * @return "SUCCESS", "NICKNAME_EXISTS" or "ERROR"
+     */
+    public static String registerUser(String nickname, String password) {
+        // First check if nickname already exists
+        String checkSql = "SELECT COUNT(*) FROM users WHERE nickname = ?";
+        String insertSql = "INSERT INTO users(nickname, password, registration_date) VALUES(?, ?, ?)";
+
+        try (Connection conn = connect()) {
+            if (conn == null) {
+                return "ERROR";
+            }
+
+            // Check if nickname exists
+            try (PreparedStatement checkStmt = conn.prepareStatement(checkSql)) {
+                checkStmt.setString(1, nickname);
+                ResultSet rs = checkStmt.executeQuery();
+
+                if (rs.next() && rs.getInt(1) > 0) {
+                    return "NICKNAME_EXISTS";
+                }
+            }
+
+            // Insert new user
+            try (PreparedStatement insertStmt = conn.prepareStatement(insertSql)) {
+                insertStmt.setString(1, nickname);
+                insertStmt.setString(2, password);
+                insertStmt.setTimestamp(3, new Timestamp(System.currentTimeMillis()));
+
+                int rowsAffected = insertStmt.executeUpdate();
+                if (rowsAffected > 0) {
+                    System.out.println("New user registered: " + nickname);
+                    return "SUCCESS";
+                }
+            }
+
+        } catch (SQLException e) {
+            System.err.println("Error registering user: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        return "ERROR";
+    }
+
+    /**
+     * Checks if login credentials are valid.
+     * @param nickname - The users nickname
+     * @param password - The users password
+     * @return "SUCCESS" or "INVALID"
+     */
+    public static String checkLogin(String nickname, String password) {
+        String sql = "SELECT password FROM users WHERE nickname = ?";
+
+        try (Connection conn = connect();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            if (conn == null) {
+                return "INVALID";
+            }
+
+            stmt.setString(1, nickname);
+            ResultSet rs = stmt.executeQuery();
+
+            if (rs.next()) {
+                String storedPassword = rs.getString("password");
+                if (storedPassword.equals(password)) {
+                    System.out.println("User logged in: " + nickname);
+                    return "SUCCESS";
+                }
+            }
+
+        } catch (SQLException e) {
+            System.err.println("Error checking login: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        return "INVALID";
     }
 
     /**

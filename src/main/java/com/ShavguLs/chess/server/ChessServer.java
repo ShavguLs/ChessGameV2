@@ -32,9 +32,11 @@ public class ChessServer {
      * NEW: This method is the entry point for every new client connection.
      * It determines what the client wants to do (play a game, import PGN, etc.).
      */
+    // DEAD CODE
     private static void handleNewConnection(Socket clientSocket) {
         System.out.println("New client connected: " + clientSocket.getInetAddress().getHostAddress() + ". Awaiting initial command...");
-        try (BufferedReader in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()))) {
+        try {
+            BufferedReader in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
             clientSocket.setSoTimeout(5000); // 5-second timeout for the client to send its command
             String command = in.readLine();
 
@@ -61,11 +63,6 @@ public class ChessServer {
             System.err.println("Connection timed out waiting for client's initial command.");
         } catch (IOException e) {
             System.err.println("Error on new connection handler: " + e.getMessage());
-        } finally {
-            // Ensure the socket is closed if it wasn't handled elsewhere
-            if (!clientSocket.isClosed()) {
-                try { clientSocket.close(); } catch (IOException e) { /* ignore */ }
-            }
         }
     }
 
@@ -110,31 +107,32 @@ public class ChessServer {
     }
 
     private static void handleConnection(Socket clientSocket) {
-        System.out.println("New connection from " + clientSocket.getInetAddress().getHostAddress() + ". Awaiting handshake.");
-        try (ObjectInputStream in = new ObjectInputStream(clientSocket.getInputStream())) {
-            HandshakeObject handshake = (HandshakeObject) in.readObject();
-            String command = handshake.command();
-            System.out.println("Received command: " + command);
-
-            if ("IMPORT_PGN".equals(command)) {
-                String pgnData = handshake.data();
-                String response = DatabaseManager.importPgn(pgnData);
-                // Send response back and close
-                try (ObjectOutputStream out = new ObjectOutputStream(clientSocket.getOutputStream())) {
-                    out.writeObject(response);
-                }
+        System.out.println("New client connected: " + clientSocket.getInetAddress().getHostAddress() + ". Awaiting initial command...");
+        try {
+            BufferedReader in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
+            clientSocket.setSoTimeout(5000); // 5-second timeout for the client to send its command
+            String command = in.readLine();
+            if (command == null) {
+                System.out.println("Client connected but sent no data. Closing connection.");
+                clientSocket.close();
+                return;
             }
-            // Add other utility commands here with "else if" in the future
-            else {
-                System.out.println("Unknown utility command. Closing connection.");
+            System.out.println("Client sent command: " + command);
+            if (command.startsWith("IMPORT_PGN:")) {
+                handlePgnImport(clientSocket, command);
+            } else if (command.equals("PLAY_CHESS")) {
+                // This is your original logic, now placed here
+                handleGamePlayer(clientSocket);
+            } else {
+                System.out.println("Client sent an unknown command. Closing connection.");
+                clientSocket.close();
             }
-
-        } catch (Exception e) {
-            System.err.println("Error handling utility connection: " + e.getMessage());
-        } finally {
-            try {
-                if (!clientSocket.isClosed()) clientSocket.close();
-            } catch (IOException e) { /* ignore */ }
+        } catch (SocketTimeoutException e) {
+            System.err.println("Connection timed out waiting for client's initial command.");
+            try { clientSocket.close(); } catch (IOException ex) { }
+        } catch (IOException e) {
+            System.err.println("Error on new connection handler: " + e.getMessage());
+            try { clientSocket.close(); } catch (IOException ex) { }
         }
     }
 }

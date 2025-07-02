@@ -20,37 +20,72 @@ public class StartMenu extends JFrame implements ActionListener {
     private static final String VALIDATE_PGN_COMMAND = "VALIDATE_PGN";
     private static final String IMPORT_PGN_COMMAND = "IMPORT_PGN";
 
+    private String loggedInUser = null;
+    private JLabel userLabel;
+
     public StartMenu() {
         super("Chess Game - Main Menu");
 
+        // Show login dialog first
+        showLoginDialog();
+
         // Frame setup
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setSize(350, 250);
+        setSize(350, 300); // Made slightly taller for user info
         setLocationRelativeTo(null); // Center the window
-        setLayout(new GridLayout(4, 1, 10, 10)); // Changed to 4 rows for the new button
+        setLayout(new BorderLayout());
+
+        // Create main panel with grid layout
+        JPanel mainPanel = new JPanel(new GridLayout(5, 1, 10, 10));
 
         // Welcome Label
         JLabel welcomeLabel = new JLabel("Welcome to Chess!", SwingConstants.CENTER);
         welcomeLabel.setFont(new Font("Serif", Font.BOLD, 24));
-        add(welcomeLabel);
+        mainPanel.add(welcomeLabel);
+
+        // User info label
+        userLabel = new JLabel("", SwingConstants.CENTER);
+        if (loggedInUser != null) {
+            userLabel.setText("Logged in as: " + loggedInUser);
+            userLabel.setFont(new Font("Arial", Font.ITALIC, 14));
+        }
+        mainPanel.add(userLabel);
 
         // Start Button
         JButton startButton = new JButton("Start New Game");
         startButton.setActionCommand(START_GAME_COMMAND);
         startButton.addActionListener(this);
-        add(startButton);
+        mainPanel.add(startButton);
 
         // Validate PGN Button
         JButton validateButton = new JButton("Validate PGN File");
         validateButton.setActionCommand(VALIDATE_PGN_COMMAND);
         validateButton.addActionListener(this);
-        add(validateButton);
+        mainPanel.add(validateButton);
 
         // Import PGN Button
         JButton importButton = new JButton("Import PGN to Database");
         importButton.setActionCommand(IMPORT_PGN_COMMAND);
         importButton.addActionListener(this);
-        add(importButton);
+        mainPanel.add(importButton);
+
+        add(mainPanel, BorderLayout.CENTER);
+    }
+
+    private void showLoginDialog() {
+        LoginDialog loginDialog = new LoginDialog(this);
+        loginDialog.setVisible(true);
+
+        if (loginDialog.wasLoginSuccessful()) {
+            loggedInUser = loginDialog.getLoggedInNickname();
+        } else {
+            // If user cancels login, exit the application
+            JOptionPane.showMessageDialog(this,
+                    "You must login to play the game!",
+                    "Login Required",
+                    JOptionPane.WARNING_MESSAGE);
+            System.exit(0);
+        }
     }
 
     @Override
@@ -79,9 +114,23 @@ public class StartMenu extends JFrame implements ActionListener {
                 options[0]);
 
         if (choice == JOptionPane.YES_OPTION) { // Play Locally
-            // This is your original logic for starting a local game
-            String whitePlayerName = "White";
-            String blackPlayerName = "Black";
+            // Ask for opponent's name (or play against yourself)
+            String opponentName = JOptionPane.showInputDialog(this,
+                    "Enter opponent's name (or leave empty to play against yourself):",
+                    "Opponent Name",
+                    JOptionPane.QUESTION_MESSAGE);
+
+            if (opponentName == null) {
+                return; // User cancelled
+            }
+
+            if (opponentName.trim().isEmpty()) {
+                opponentName = loggedInUser + " (Black)";
+            }
+
+            // Set player names using logged in user
+            String whitePlayerName = loggedInUser;
+            String blackPlayerName = opponentName;
             int hours = 0, minutes = 10, seconds = 0; // Default 10-minute game
 
             // Create the LOCAL game window using the original constructor
@@ -114,9 +163,10 @@ public class StartMenu extends JFrame implements ActionListener {
             // A more advanced version could also ask the user for the port.
             final int port = 8888;
             final String finalServerAddress = serverAddress;
+            final String nickname = loggedInUser;
 
             // Create the ONLINE game window using the new constructor
-            SwingUtilities.invokeLater(() -> new GameWindow(finalServerAddress, port));
+            SwingUtilities.invokeLater(() -> new GameWindow(finalServerAddress, port, nickname));
             this.dispose(); // Close the start menu
         }
         // If the user closes the dialog, 'choice' will be JOptionPane.CLOSED_OPTION, and we do nothing.
@@ -320,6 +370,4 @@ public class StartMenu extends JFrame implements ActionListener {
 
         JOptionPane.showMessageDialog(this, scrollPane, title + " - " + iconType, messageType);
     }
-
-
 }

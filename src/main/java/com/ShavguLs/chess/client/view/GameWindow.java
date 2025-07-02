@@ -9,6 +9,8 @@ public class GameWindow extends JFrame {
 
     private JLabel blackTimeLabel;
     private JLabel whiteTimeLabel;
+    private JLabel whiteNameLabel;
+    private JLabel blackNameLabel;
     private ChessBoardPanel boardPanel;
     private GameController controller;
     private JButton saveGame; // Field to hold the save button
@@ -32,7 +34,9 @@ public class GameWindow extends JFrame {
 
         this.setLocation(100, 100);
         this.setLayout(new BorderLayout(20, 20));
+
         JPanel gameData = gameDataPanel(blackName, whiteName, hh, mm, ss);
+
         this.add(gameData, BorderLayout.NORTH);
         this.boardPanel = new ChessBoardPanel(this, controller);
         this.add(boardPanel, BorderLayout.CENTER);
@@ -48,10 +52,10 @@ public class GameWindow extends JFrame {
     // =================================================================
     // --- CONSTRUCTOR 2: FOR ONLINE GAMES (THE NEW CONSTRUCTOR) ---
     // =================================================================
-    public GameWindow(String serverAddress, int port) {
+    public GameWindow(String serverAddress, int port, String playerNickname) {
         super("Chess - Connecting...");
-        // Creates an ONLINE game controller
-        this.controller = new GameController(this, serverAddress, port);
+        // Creates an ONLINE game controller with the player's nickname
+        this.controller = new GameController(this, serverAddress, port, playerNickname);
 
         // --- Standard UI Setup ---
         try {
@@ -64,7 +68,7 @@ public class GameWindow extends JFrame {
         this.setLocation(100, 100);
         this.setLayout(new BorderLayout(20, 20));
         // Use placeholder names. The server will provide the real names.
-        JPanel gameData = gameDataPanel("Opponent", "You", 0, 0, 0);
+        JPanel gameData = gameDataPanel("Opponent", playerNickname, 0, 0, 0);
         this.add(gameData, BorderLayout.NORTH);
         this.boardPanel = new ChessBoardPanel(this, controller);
         this.add(boardPanel, BorderLayout.CENTER);
@@ -95,29 +99,37 @@ public class GameWindow extends JFrame {
                                  final int hh, final int mm, final int ss){
         JPanel gameData = new JPanel();
         gameData.setLayout(new GridLayout(2,2,5,5));
-        JLabel whiteLabel = new JLabel(wn, SwingConstants.CENTER);
-        JLabel blackLabel = new JLabel(bn, SwingConstants.CENTER);
-        whiteLabel.setFont(new Font("SansSerif", Font.BOLD, 14));
-        blackLabel.setFont(new Font("SansSerif", Font.BOLD, 14));
-        gameData.add(whiteLabel);
-        gameData.add(blackLabel);
+
+        whiteNameLabel = new JLabel(wn, SwingConstants.CENTER);
+        blackNameLabel = new JLabel(bn, SwingConstants.CENTER);
+        whiteNameLabel.setFont(new Font("SansSerif", Font.BOLD, 14));
+        blackNameLabel.setFont(new Font("SansSerif", Font.BOLD, 14));
+
+        gameData.add(whiteNameLabel);
+        gameData.add(blackNameLabel);
+
         whiteTimeLabel = new JLabel("Untimed game!", SwingConstants.CENTER);
         blackTimeLabel = new JLabel("Untimed game!", SwingConstants.CENTER);
         Font clockFont = new Font("Monospaced", Font.BOLD, 16);
         whiteTimeLabel.setFont(clockFont);
         blackTimeLabel.setFont(clockFont);
+
         if (!(hh == 0 && mm == 0 && ss == 0)){
             whiteTimeLabel.setText(String.format("%02d:%02d:%02d", hh, mm, ss));
             blackTimeLabel.setText(String.format("%02d:%02d:%02d", hh, mm, ss));
         }
+
         JPanel whiteClockPanel = new JPanel(new BorderLayout());
         whiteClockPanel.setBorder(BorderFactory.createTitledBorder("White Clock"));
         whiteClockPanel.add(whiteTimeLabel, BorderLayout.CENTER);
+
         JPanel blackClockPanel = new JPanel(new BorderLayout());
         blackClockPanel.setBorder(BorderFactory.createTitledBorder("Black Clock"));
         blackClockPanel.add(blackTimeLabel, BorderLayout.CENTER);
+
         gameData.add(whiteClockPanel);
         gameData.add(blackClockPanel);
+
         return gameData;
     }
 
@@ -208,5 +220,14 @@ public class GameWindow extends JFrame {
     public void stalemateOccurred() {
         String message = "Stalemate! The game is a draw.";
         JOptionPane.showMessageDialog(this, message, "Game Over", JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    public void updatePlayerNames(String whiteName, String blackName) {
+        if (whiteNameLabel != null) {
+            SwingUtilities.invokeLater(() -> whiteNameLabel.setText(whiteName));
+        }
+        if (blackNameLabel != null) {
+            SwingUtilities.invokeLater(() -> blackNameLabel.setText(blackName));
+        }
     }
 }

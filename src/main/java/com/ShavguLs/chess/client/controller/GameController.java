@@ -53,7 +53,7 @@ public class GameController implements ServerUpdateListener {
     // ======================================================================
     // --- CONSTRUCTOR 2: FOR ONLINE GAMES (The New Constructor) ---
     // ======================================================================
-    public GameController(GameWindow gameWindow, String serverAddress, int port) {
+    public GameController(GameWindow gameWindow, String serverAddress, int port, String playerNickname) {
         this.gameWindow = gameWindow;
         this.isOnlineGame = true; // This is an online game
 
@@ -68,6 +68,7 @@ public class GameController implements ServerUpdateListener {
         this.logicBoard = new Board();
 
         this.networkClient = new NetworkClient(serverAddress, port, this);
+        this.networkClient.setPlayerNickname(playerNickname); // Set the nickname
         if (!networkClient.connect()) {
             JOptionPane.showMessageDialog(gameWindow, "Failed to connect to the server.", "Connection Error", JOptionPane.ERROR_MESSAGE);
         }
@@ -299,7 +300,22 @@ public class GameController implements ServerUpdateListener {
     @Override
     public void onGameStart(String color, String opponentName) {
         this.isPlayerWhite = color.equalsIgnoreCase("WHITE");
-        gameWindow.setTitle("Online Chess - You are " + color + " vs. " + opponentName);
+
+        String myName = networkClient.getPlayerNickname();
+        if (myName == null || myName.isEmpty()){
+            myName = "You";
+        }
+
+        gameWindow.setTitle("Online Chess - " + myName + " (" + color + ") vs. " + opponentName);
+
+        if (isPlayerWhite) {
+            // If im white, update the display
+            gameWindow.updatePlayerNames(myName, opponentName);
+        } else {
+            // If im black, update the display
+            gameWindow.updatePlayerNames(opponentName, myName);
+        }
+
         if (this.isOnlineGame) {
             stopTimer();
         }
