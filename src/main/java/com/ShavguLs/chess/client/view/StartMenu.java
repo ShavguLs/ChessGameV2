@@ -13,12 +13,12 @@ import java.awt.event.ActionListener;
 import java.io.File;
 import java.util.List;
 
-// Make StartMenu a JFrame so it can be a standalone window
 public class StartMenu extends JFrame implements ActionListener {
 
     private static final String START_GAME_COMMAND = "START_GAME";
     private static final String VALIDATE_PGN_COMMAND = "VALIDATE_PGN";
     private static final String IMPORT_PGN_COMMAND = "IMPORT_PGN";
+    private static final String SPECTATE_GAME_COMMAND = "SPECTATE_GAME";
 
     private String loggedInUser = null;
     private JLabel userLabel;
@@ -31,12 +31,12 @@ public class StartMenu extends JFrame implements ActionListener {
 
         // Frame setup
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setSize(350, 300); // Made slightly taller for user info
+        setSize(350, 350);
         setLocationRelativeTo(null); // Center the window
         setLayout(new BorderLayout());
 
         // Create main panel with grid layout
-        JPanel mainPanel = new JPanel(new GridLayout(5, 1, 10, 10));
+        JPanel mainPanel = new JPanel(new GridLayout(6, 1, 10, 10));
 
         // Welcome Label
         JLabel welcomeLabel = new JLabel("Welcome to Chess!", SwingConstants.CENTER);
@@ -56,6 +56,13 @@ public class StartMenu extends JFrame implements ActionListener {
         startButton.setActionCommand(START_GAME_COMMAND);
         startButton.addActionListener(this);
         mainPanel.add(startButton);
+
+        // Spectate Button
+        JButton spectateButton = new JButton("Watch Live Games");
+        spectateButton.setActionCommand(SPECTATE_GAME_COMMAND);
+        spectateButton.addActionListener(this);
+        spectateButton.setToolTipText("Watch live games between other players");
+        mainPanel.add(spectateButton);
 
         // Validate PGN Button
         JButton validateButton = new JButton("Validate PGN File");
@@ -98,6 +105,8 @@ public class StartMenu extends JFrame implements ActionListener {
             validatePGNFile();
         } else if (IMPORT_PGN_COMMAND.equals(command)) {
             importPgnFile();
+        } else if (SPECTATE_GAME_COMMAND.equals(command)) {
+            spectateGame();
         }
     }
 
@@ -170,6 +179,29 @@ public class StartMenu extends JFrame implements ActionListener {
             this.dispose(); // Close the start menu
         }
         // If the user closes the dialog, 'choice' will be JOptionPane.CLOSED_OPTION, and we do nothing.
+    }
+
+    private void spectateGame() {
+        // Ask for server address
+        String serverAddress = (String) JOptionPane.showInputDialog(
+                this,
+                "Enter Server Address:",
+                "Connect to Server",
+                JOptionPane.QUESTION_MESSAGE,
+                null,
+                null,
+                "localhost"
+        );
+
+        if (serverAddress == null || serverAddress.trim().isEmpty()) {
+            serverAddress = "localhost";
+        }
+
+        final int port = 8888;
+
+        // Show the game list dialog
+        GameListDialog gameListDialog = new GameListDialog(this, serverAddress, port);
+        gameListDialog.setVisible(true);
     }
 
     private void validatePGNFile() {

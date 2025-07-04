@@ -2,14 +2,14 @@ package com.ShavguLs.chess.server;
 
 import com.ShavguLs.chess.common.logic.*;
 import com.ShavguLs.chess.common.MoveObject;
-
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -40,7 +40,14 @@ public class GameSession implements Runnable {
     private final MoveTracker moveTracker;
     private final PGNManager pgnManager;
 
-    public GameSession(Socket player1, Socket player2) {
+    // Spectator support
+    private final int gameId;
+    private final List<SpectatorConnection> spectators = new CopyOnWriteArrayList<>();
+    private volatile boolean isGameActive = true;
+
+    public GameSession(Socket player1, Socket player2, int gameId) {
+        this.gameId = gameId;
+
         // --- Initialize Time ---
         int hh = 0, mm = 10, ss = 0; // Hardcoded 10 minutes for now
         this.whiteClock = new Clock(hh, mm, ss);
@@ -59,6 +66,26 @@ public class GameSession implements Runnable {
         // --- Assign Players ---
         this.whitePlayerSocket = player1;
         this.blackPlayerSocket = player2;
+    }
+
+    public String getWhitePlayerName() {
+        return whitePlayerNickname;
+    }
+
+    public String getBlackPlayerName() {
+        return blackPlayerNickname;
+    }
+
+    public String getCurrentTurn() {
+        return logicBoard.isWhiteTurn() ? "White" : "Black";
+    }
+
+    public String getTimeStatus() {
+        return whiteClock.getTime() + " / " + blackClock.getTime();
+    }
+
+    public boolean isActive() {
+        return isGameActive;
     }
 
     @Override
@@ -124,7 +151,7 @@ public class GameSession implements Runnable {
             }
 
             // Game Over Sequence
-            System.out.println("[SERVER LOG] Game over. Reason: " + gameStatus);
+            System.out.println("[SERVER LOG] Game #" + gameId + " over. Reason: " + gameStatus);
             stopClockTimer();
 
             String finalResult;
@@ -167,7 +194,10 @@ public class GameSession implements Runnable {
             e.printStackTrace();
             broadcastMessage("ERROR:A server error occurred. The game cannot continue.");
         } finally {
+            isGameActive = false;
             closeConnections();
+            //Remove this game from active games
+            ChessServer.removeGame(gameId);
         }
     }
 
@@ -192,7 +222,7 @@ public class GameSession implements Runnable {
                 blackPlayerNickname = blackNick;
             }
 
-            System.out.println("[SERVER LOG] Players: " + whitePlayerNickname + " (White) vs " + blackPlayerNickname + " (Black)");
+            System.out.println("[SERVER LOG] Game ID:\" + gameId + \" - Players: \" + whitePlayerNickname + \" (White) vs \" + blackPlayerNickname + \" (Black)");
 
         } catch (Exception e) {
             System.err.println("[SERVER ERROR] Could not get player nicknames: " + e.getMessage());
@@ -357,14 +387,131 @@ public class GameSession implements Runnable {
         } catch (IOException e) { System.err.println("Failed to send to black: " + e.getMessage()); }
     }
 
+    // Broadcast message to all spectators
+    private void broadcastToSpectators(String message) {
+        List<SpectatorConnection> toRemove = new ArrayList<>();
+
+        for (SpectatorConnection spectator : spectators) {
+            try {
+                spectator.sendMessage(message);
+            } catch (IOException e) {
+                // Spectator disconnected, mark for removal
+                toRemove.add(spectator);
+            }
+        }
+
+        // Remove disconnected spectators
+        for (SpectatorConnection spectator : toRemove) {
+            spectators.remove(spectator);
+            spectator.close();
+        }
+    }
+
     private void closeConnections() {
         stopClockTimer();
         try { if(whitePlayerSocket != null) whitePlayerSocket.close(); } catch (IOException e) { /* ignore */ }
         try { if(blackPlayerSocket != null) blackPlayerSocket.close(); } catch (IOException e) { /* ignore */ }
-        System.out.println("GameSession ended and connections closed.");
+
+        // Close all spectator connections
+        for (SpectatorConnection spectator : spectators) {
+            spectator.close();
+        }
+        spectators.clear();
+
+        System.out.println("GameSession #" + gameId + " ended and connections closed.");
     }
 
     private boolean isTimeUp() {
         return whiteClock.outOfTime() || blackClock.outOfTime();
+    }
+
+    public void addSpectator(Socket spectatorSocket) throws IOException {
+        if (!isGameActive) {
+            spectatorSocket.close();
+            return;
+        }
+
+        SpectatorConnection spectator = new SpectatorConnection(spectatorSocket);
+        spectators.add(spectator);
+
+        // Send welcome message with current players
+        spectator.sendMessage("SPECTATOR_WELCOME:" + whitePlayerNickname + ":" + blackPlayerNickname);
+
+        // Send current game state
+        spectator.sendMessage("FEN:" + logicBoard.generateFen());
+
+        // Send current clock times
+        spectator.sendMessage(String.format("CLOCK_UPDATE:%s;%s", whiteClock.getTime(), blackClock.getTime()));
+
+        System.out.println("Spectator added to game #" + gameId + ". Total spectators: " + spectators.size());
+
+        // Start a listener thread for this spectator to handle their requests
+        new Thread(() -> handleSpectatorRequests(spectator)).start();
+    }
+
+    private void handleSpectatorRequests(SpectatorConnection spectator) {
+        try (ObjectInputStream spectatorIn = new ObjectInputStream(spectator.socket.getInputStream())) {
+
+            while (isGameActive && !spectator.socket.isClosed()) {
+                try {
+                    spectator.socket.setSoTimeout(30000); // 30 second timeout
+                    Object request = spectatorIn.readObject();
+
+                    if (request instanceof String) {
+                        String requestStr = (String) request;
+
+                        if ("REQUEST_UPDATE".equals(requestStr)) {
+                            // Send current game state to this spectator
+                            spectator.sendMessage("FEN:" + logicBoard.generateFen());
+                            spectator.sendMessage(String.format("CLOCK_UPDATE:%s;%s",
+                                    whiteClock.getTime(), blackClock.getTime()));
+                            System.out.println("Sent update to spectator in game #" + gameId);
+                        }
+                    }
+
+                } catch (java.net.SocketTimeoutException e) {
+                    // Normal timeout, continue listening
+                    continue;
+                } catch (Exception e) {
+                    // Spectator disconnected or error occurred
+                    System.out.println("Spectator disconnected from game #" + gameId + ": " + e.getMessage());
+                    break;
+                }
+            }
+
+        } catch (IOException e) {
+            System.err.println("Error setting up spectator input stream: " + e.getMessage());
+        } finally {
+            // Remove spectator when they disconnect
+            spectators.remove(spectator);
+            spectator.close();
+            System.out.println("Spectator removed from game #" + gameId + ". Remaining: " + spectators.size());
+        }
+    }
+
+    private static class SpectatorConnection {
+        private Socket socket;
+        private ObjectOutputStream out;
+
+        public SpectatorConnection(Socket socket) throws IOException {
+            this.socket = socket;
+            this.out = new ObjectOutputStream(socket.getOutputStream());
+            this.out.flush();
+        }
+
+        public void sendMessage(String message) throws IOException {
+            out.writeObject(message);
+            out.flush();
+        }
+
+        public void close() {
+            try {
+                if (socket != null && !socket.isClosed()) {
+                    socket.close();
+                }
+            } catch (IOException e) {
+                // Ignore close errors
+            }
+        }
     }
 }

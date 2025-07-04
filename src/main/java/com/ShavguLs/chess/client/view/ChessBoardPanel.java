@@ -1,7 +1,7 @@
 package com.ShavguLs.chess.client.view;
 
 import com.ShavguLs.chess.client.controller.GameController;
-import com.ShavguLs.chess.common.logic.Piece; // <-- Import YOUR Piece class
+import com.ShavguLs.chess.common.logic.Piece;
 
 import javax.swing.*;
 import java.awt.*;

@@ -37,7 +37,6 @@ public class DatabaseManager {
      */
     public static void initializeDatabase() {
         // SQL for creating the games table.
-        // Your partner's code will create the 'users' table.
         String createGamesTableSql = "CREATE TABLE IF NOT EXISTS games ("
                 + " id INT AUTO_INCREMENT PRIMARY KEY,"
                 + " white_player VARCHAR(255) NOT NULL,"
