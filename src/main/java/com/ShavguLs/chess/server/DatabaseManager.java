@@ -10,7 +10,9 @@ public class DatabaseManager {
     private static final String DB_HOST = "localhost";
     private static final String DB_NAME = "chess_db";
     private static final String DB_USER = "root";
-    private static final String DB_PASS = ""; //ChessV2
+    private static final String DB_PASS = "";
+//    private static final String DB_USER = "chess_app_user";
+//    private static final String DB_PASS = "ChessV2";
     // ------------------------------------
 
     // The JDBC connection URL for MariaDB

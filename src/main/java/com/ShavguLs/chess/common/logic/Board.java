@@ -1,6 +1,6 @@
 package com.ShavguLs.chess.common.logic;
 
-import com.ShavguLs.chess.client.view.PromotionHandler;
+
 
 public class Board {
     private static final int BOARD_SIZE = 8;
@@ -168,18 +168,23 @@ public class Board {
             return false;
         }
 
+        Piece king = getPieceAt(srcRow, srcCol);
+        if (king == null || king.hasMoved()) { // Check if the King itself has moved
+            return false;
+        }
+
         // Check path is clear
         int step = (direction > 0) ? 1 : -1;
         for (int c = srcCol + step; c != rookCol; c += step) {
             if (getPieceAt(srcRow, c) != null) {
                 return false;
             }
+            if (isSquareAttacked(srcRow, c, !isWhiteTurn)) {
+                return false; // The king's path is attacked.
+            }
         }
 
-        // Check king doesn't pass through check
-        if (isSquareAttacked(srcRow, srcCol + step, !isWhiteTurn)) {
-            return false;
-        }
+
 
         // Check king doesn't end in check
         Board boardAfterMove = this.copy();

@@ -32,7 +32,11 @@ public class King extends Piece {
         // --- SIMPLIFIED CASTLING CHECK ---
         // We only check if a 2-square horizontal move is being ATTEMPTED by a king that hasn't moved.
         // The Board will handle the detailed rules.
-        if (!this.hasMoved && rowDiff == 0 && colDiff == 2) {
+        int startRow = this.isWhite ? 7 : 0;
+
+        // The move is only a potential castle if it's a 2-square horizontal move
+        // AND the king is on its original starting rank.
+        if (!this.hasMoved && srcRow == startRow && rowDiff == 0 && colDiff == 2) {
             return true;
         }
 
