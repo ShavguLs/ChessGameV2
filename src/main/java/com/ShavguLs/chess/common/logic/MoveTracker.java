@@ -42,23 +42,25 @@ public class MoveTracker {
     }
 
     public boolean hasThreefoldRepetition() {
-        if (positionHistory.size() < 9) {
+        // A threefold repetition is not possible if there aren't enough moves
+        // for a position to even be repeated once. A simple check is enough.
+        if (positionHistory.isEmpty()) {
             return false;
         }
 
+        // Get the most recent position that was just added.
         String currentPosition = positionHistory.get(positionHistory.size() - 1);
-        int count = 0;
 
+        // Count how many times this exact position has occurred in the history.
+        int count = 0;
         for (String position : positionHistory) {
             if (position.equals(currentPosition)) {
                 count++;
-                if (count >= 3) {
-                    return true;
-                }
             }
         }
 
-        return false;
+        // The rule is met if the count is 3 or more.
+        return count >= 3;
     }
 
     public boolean hasFiftyMoveRule() {
